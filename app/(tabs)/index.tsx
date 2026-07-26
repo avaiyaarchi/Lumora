@@ -1,22 +1,22 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, ScrollView, Modal, Pressable, Platform, Alert } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import { useRouter } from 'expo-router';
-import { useThemeStore } from '../../src/store/themeStore';
-import { useAuthStore } from '../../src/store/authStore';
-import { useFocusStore, SessionMode } from '../../src/store/focusStore';
-import { Card } from '../../src/components/Card';
+import { ChevronRight, FileText, Flame, Plus, Sliders, Square, Trash2, X } from 'lucide-react-native';
+import React, { useEffect, useState } from 'react';
+import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../../src/components/Button';
+import { Card } from '../../src/components/Card';
 import { Input } from '../../src/components/Input';
 import { TimerCircle } from '../../src/components/TimerCircle';
 import { AvatarLayer } from '../../src/components/avatars/AvatarLayer';
-import { Flame, Sliders, ChevronRight, Play, Pause, Square, FileText, Trash2, X, Plus } from 'lucide-react-native';
-import * as DocumentPicker from 'expo-document-picker';
+import { useAuthStore } from '../../src/store/authStore';
+import { useFocusStore } from '../../src/store/focusStore';
+import { useThemeStore } from '../../src/store/themeStore';
 
 export default function HomeScreen() {
   const router = useRouter();
   const colors = useThemeStore((state) => state.getColors());
   const user = useAuthStore((state) => state.user);
-  
+
   // Timer store fields and actions
   const {
     mode,
@@ -65,19 +65,6 @@ export default function HomeScreen() {
   const [localNotes, setLocalNotes] = useState(notes);
   const [localFileName, setLocalFileName] = useState(fileName);
   const [localFileUri, setLocalFileUri] = useState(fileUri);
-
-  // Sync Timer local ticking
-  useEffect(() => {
-    let interval: any = null;
-    if (isRunning) {
-      interval = setInterval(() => {
-        tick();
-      }, 1000);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isRunning, tick]);
 
   // Navigate to distraction-free focus screen when in Focus mode and running
   useEffect(() => {
@@ -214,7 +201,7 @@ export default function HomeScreen() {
               {user?.streak || 1}
             </Text>
           </View>
-          
+
           {/* Settings icon */}
           <Pressable
             style={[styles.settingsButton, { backgroundColor: colors.card, borderColor: colors.border }]}
@@ -510,7 +497,7 @@ export default function HomeScreen() {
               <Text style={[styles.sectionSubTitle, { color: colors.textPrimary, marginBottom: 8 }]}>
                 PDF Material (Optional)
               </Text>
-              
+
               {localFileName ? (
                 <View style={[styles.fileUploadedCard, { backgroundColor: colors.progressBg, borderColor: colors.border }]}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>

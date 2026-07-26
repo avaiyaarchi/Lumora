@@ -6,7 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '../src/store/authStore';
 import { useThemeStore } from '../src/store/themeStore';
-import * as Notifications from 'expo-notifications';
+import * as Notifications from '../src/utils/notifications';
 
 // Configure default local notifications behaviour
 Notifications.setNotificationHandler({

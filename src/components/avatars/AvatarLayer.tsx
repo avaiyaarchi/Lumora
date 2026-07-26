@@ -129,11 +129,11 @@ export const AvatarLayer: React.FC<AvatarLayerProps> = ({
             {/* Right frame */}
             <Circle cx="118" cy="92" r="15" fill="none" stroke="#222" strokeWidth="3" />
             {/* Bridge */}
-            <Path d="M 97 92 Q 100 88 103 92" fill="none" stroke="#22" strokeWidth="3" />
+            <Path d="M 97 92 Q 100 88 103 92" fill="none" stroke="#222" strokeWidth="3" />
             {/* Temples */}
-            <Path d="M 67 92 Q 57 88 52 92" fill="none" stroke="#22" strokeWidth="2" />
+            <Path d="M 67 92 Q 57 88 52 92" fill="none" stroke="#222" strokeWidth="2" />
             {/* Right temple */}
-            <Path d="M 133 92 Q 143 88 148 92" fill="none" stroke="#22" strokeWidth="2" />
+            <Path d="M 133 92 Q 143 88 148 92" fill="none" stroke="#222" strokeWidth="2" />
           </G>
         )}
 
@@ -284,7 +284,7 @@ export const AvatarLayer: React.FC<AvatarLayerProps> = ({
             <Path d="M 139 95 C 139 106, 115 118, 108 110 C 112 100, 128 90, 139 95 Z" fill="#FFFFFF" />
             {/* Eyes */}
             <Path d="M 76 89 Q 82 85 88 89" fill="none" stroke="#222" strokeWidth="2.5" strokeLinecap="round" />
-            <Path d="M 112 89 Q 118 85 124 89" fill="none" stroke="#22" strokeWidth="2.5" strokeLinecap="round" />
+            <Path d="M 112 89 Q 118 85 124 89" fill="none" stroke="#222" strokeWidth="2.5" strokeLinecap="round" />
             {/* Nose */}
             <Circle cx="100" cy="112" r="3.5" fill="#222" />
           </G>

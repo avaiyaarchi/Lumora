@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, AppStateStatus } from 'react-native';
-import * as Notifications from 'expo-notifications';
+import * as Notifications from '../utils/notifications';
 import { saveFocusSession } from '../services/firebase/firestore';
 import { useAuthStore } from './authStore';
 
@@ -31,6 +31,7 @@ interface FocusState extends FocusSettings {
   // Timer References for Background Resiliency
   startTime: number | null; // epoch timestamp ms
   secondsElapsedBeforeStart: number; // accumulator for pause/resume
+  _intervalId?: any;
 
   // Study Context
   subject: string;
@@ -89,6 +90,7 @@ export const useFocusStore = create<FocusState>()(
         currentStreak: 0,
         startTime: null,
         secondsElapsedBeforeStart: 0,
+        _intervalId: null,
 
         // Study Context
         subject: '',
@@ -140,9 +142,20 @@ export const useFocusStore = create<FocusState>()(
             }).catch((err) => console.log('Error scheduling notification', err));
           }
 
+          // Clear any existing interval
+          if ((get() as any)._intervalId) {
+            clearInterval((get() as any)._intervalId);
+          }
+
+          // Start internal interval ticking
+          const intervalId = setInterval(() => {
+            get().tick();
+          }, 1000);
+
           set({
             isRunning: true,
             startTime: Date.now(),
+            _intervalId: intervalId as any,
           });
         },
 
@@ -153,11 +166,17 @@ export const useFocusStore = create<FocusState>()(
           // Cancel scheduled notification
           Notifications.cancelScheduledNotificationAsync(`lumora-timer-${mode}`).catch(() => {});
 
+          // Clear internal interval ticking
+          if ((get() as any)._intervalId) {
+            clearInterval((get() as any)._intervalId);
+          }
+
           const elapsedSinceLastStart = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
           set({
             isRunning: false,
             secondsElapsedBeforeStart: secondsElapsedBeforeStart + elapsedSinceLastStart,
             startTime: null,
+            _intervalId: null,
           });
         },
 
@@ -166,6 +185,11 @@ export const useFocusStore = create<FocusState>()(
           
           // Cancel scheduled notification
           Notifications.cancelScheduledNotificationAsync(`lumora-timer-${mode}`).catch(() => {});
+
+          // Clear internal interval ticking
+          if ((get() as any)._intervalId) {
+            clearInterval((get() as any)._intervalId);
+          }
 
           let targetDuration = focusDuration;
           if (mode === 'shortBreak') targetDuration = shortBreakDuration;
@@ -176,6 +200,7 @@ export const useFocusStore = create<FocusState>()(
             startTime: null,
             secondsElapsedBeforeStart: 0,
             timeLeft: minToSec(targetDuration),
+            _intervalId: null,
           });
         },
 
@@ -240,7 +265,12 @@ export const useFocusStore = create<FocusState>()(
           // Cancel any notifications
           Notifications.cancelScheduledNotificationAsync(`lumora-timer-${mode}`).catch(() => {});
 
-          set({ isRunning: false, startTime: null, secondsElapsedBeforeStart: 0 });
+          // Clear internal interval ticking
+          if ((get() as any)._intervalId) {
+            clearInterval((get() as any)._intervalId);
+          }
+
+          set({ isRunning: false, startTime: null, secondsElapsedBeforeStart: 0, _intervalId: null });
 
           if (mode === 'focus') {
             const nextSessionsToday = completedSessionsToday + 1;
@@ -372,7 +402,6 @@ export const useFocusStore = create<FocusState>()(
         completedSessionsToday: state.completedSessionsToday,
         completedSessionsTotal: state.completedSessionsTotal,
         mode: state.mode,
-        timeLeft: state.timeLeft,
       }),
     }
   )

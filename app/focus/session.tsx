@@ -1,14 +1,17 @@
-import React, { useEffect } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, Platform, BackHandler, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useThemeStore } from '../../src/store/themeStore';
-import { useFocusStore } from '../../src/store/focusStore';
-import { TimerCircle } from '../../src/components/TimerCircle';
+import { useEffect } from 'react';
+import { Alert, BackHandler, Platform, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../../src/components/Button';
+import { TimerCircle } from '../../src/components/TimerCircle';
+import { AvatarLayer } from '../../src/components/avatars/AvatarLayer';
+import { useAuthStore } from '../../src/store/authStore';
+import { useFocusStore } from '../../src/store/focusStore';
+import { useThemeStore } from '../../src/store/themeStore';
 
 export default function FocusSessionScreen() {
   const router = useRouter();
   const colors = useThemeStore((state) => state.getColors());
+  const user = useAuthStore((state) => state.user);
 
   const {
     mode,
@@ -19,22 +22,10 @@ export default function FocusSessionScreen() {
     topic,
     startTimer,
     pauseTimer,
+    resetTimer,
     completeCurrentStage,
     tick,
   } = useFocusStore();
-
-  // Sync Timer local ticking
-  useEffect(() => {
-    let interval: any = null;
-    if (isRunning) {
-      interval = setInterval(() => {
-        tick();
-      }, 1000);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isRunning, tick]);
 
   // If the focus timer completes, or state moves away from 'focus', return to tabs index
   useEffect(() => {
@@ -64,7 +55,7 @@ export default function FocusSessionScreen() {
           text: 'End Session',
           style: 'destructive',
           onPress: () => {
-            pauseTimer();
+            resetTimer();
             // Go back to tabs index which handles resetting/reconfig
             router.replace('/(tabs)' as any);
           },
@@ -87,6 +78,11 @@ export default function FocusSessionScreen() {
 
       {/* Main Focus Ring */}
       <View style={styles.timerWrapper}>
+        <AvatarLayer
+          avatar={user?.equippedAvatar || 'cat'}
+          accessories={user?.equippedAccessories || []}
+          size={120}
+        />
         <TimerCircle timeLeft={timeLeft} totalDuration={focusDuration * 60} mode="focus" size={260} />
       </View>
 

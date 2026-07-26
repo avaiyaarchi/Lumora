@@ -10,7 +10,7 @@ import { Button } from '../../src/components/Button';
 import { ThemeName, themePalettes } from '../../src/theme/colors';
 import { getXPNeededForNextLevel } from '../../src/constants/xp';
 import { FocusSession } from '../../src/types';
-import { Sparkles, Calendar, Award, Palette, Shirt, Sliders, LogOut, Sun, Moon, Laptop, Lock } from 'lucide-react-native';
+import { Sparkles, Calendar, Award, Palette, Shirt, Sliders, LogOut, Sun, Moon, Laptop, Lock, Settings } from 'lucide-react-native';
 import { format, parseISO } from 'date-fns';
 
 
@@ -101,10 +101,20 @@ export default function ProfileScreen() {
     <ScrollView contentContainerStyle={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header Greeting */}
       <View style={styles.headerBar}>
-        <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>Student Profile</Text>
-        <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
-          Manage avatars, cosmetic themes, and history
-        </Text>
+        <View style={styles.headerTitleContainer}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>Student Profile</Text>
+            <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
+              Manage avatars, cosmetic themes, and history
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => router.push('/settings' as any)}
+            style={[styles.settingsButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+          >
+            <Settings size={20} color={colors.textPrimary} />
+          </Pressable>
+        </View>
       </View>
 
       {/* User Card */}
@@ -447,6 +457,20 @@ const styles = StyleSheet.create({
   },
   headerBar: {
     marginBottom: 24,
+  },
+  headerTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  settingsButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 24,

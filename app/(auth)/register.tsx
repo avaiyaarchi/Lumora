@@ -9,6 +9,7 @@ import { Card } from '../../src/components/Card';
 import { Input } from '../../src/components/Input';
 import { Button } from '../../src/components/Button';
 import { User, Mail, Lock, GraduationCap } from 'lucide-react-native';
+import { LumoraLogo } from '../../src/components/LumoraLogo';
 
 const registerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -69,6 +70,9 @@ export default function RegisterScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
+          <View style={{ marginBottom: 12 }}>
+            <LumoraLogo size={40} />
+          </View>
           <Text style={[styles.titleText, { color: colors.textPrimary }]}>Create Account</Text>
           <Text style={[styles.subtitleText, { color: colors.textSecondary }]}>
             Join Lumora to build focus habits!

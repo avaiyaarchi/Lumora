@@ -17,6 +17,10 @@ interface FocusSettings {
   autoStartShortBreak: boolean;
   autoStartLongBreak: boolean;
   autoStartQuiz: boolean;
+  aiQuizEnabled: boolean;
+  quizFrequency: number;
+  waterReminderEnabled: boolean;
+  waterReminderInterval: number; // in minutes
 }
 
 interface FocusState extends FocusSettings {
@@ -40,6 +44,12 @@ interface FocusState extends FocusSettings {
   fileUri: string | null;
   fileName: string | null;
 
+  // Extra States
+  completedSessionsForQuizCount: number;
+  showWaterReminder: boolean;
+  focusSprintFinished: boolean;
+  lastCompletedSprintStats: { duration: number; xpEarned: number; triggerQuiz: boolean } | null;
+
   // Actions
   setSettings: (settings: Partial<FocusSettings>) => void;
   setContext: (context: { subject: string; topic: string; notes?: string; fileUri?: string | null; fileName?: string | null }) => void;
@@ -52,6 +62,8 @@ interface FocusState extends FocusSettings {
   skipToNext: () => void;
   resetDailySessions: () => void;
   completeQuiz: () => void;
+  dismissWaterReminder: () => void;
+  clearLastCompletedSprintStats: () => void;
 }
 
 // Convert minutes to seconds
@@ -80,6 +92,10 @@ export const useFocusStore = create<FocusState>()(
         autoStartShortBreak: true,
         autoStartLongBreak: true,
         autoStartQuiz: true,
+        aiQuizEnabled: true,
+        quizFrequency: 3,
+        waterReminderEnabled: true,
+        waterReminderInterval: 30,
 
         // Initial State
         mode: 'focus',
@@ -91,6 +107,10 @@ export const useFocusStore = create<FocusState>()(
         startTime: null,
         secondsElapsedBeforeStart: 0,
         _intervalId: null,
+        completedSessionsForQuizCount: 0,
+        showWaterReminder: false,
+        focusSprintFinished: false,
+        lastCompletedSprintStats: null,
 
         // Study Context
         subject: '',
@@ -217,6 +237,16 @@ export const useFocusStore = create<FocusState>()(
           const totalElapsed = secondsElapsedBeforeStart + elapsedSinceStart;
           const remaining = Math.max(0, totalTargetSec - totalElapsed);
 
+          // Handle Water Sip Reminder
+          if (mode === 'focus' && get().waterReminderEnabled) {
+            const intervalSec = get().waterReminderInterval * 60;
+            if (totalElapsed > 0 && totalElapsed % intervalSec === 0 && remaining > 0) {
+              if (!get().showWaterReminder) {
+                set({ showWaterReminder: true });
+              }
+            }
+          }
+
           if (remaining === 0) {
             get().completeCurrentStage();
           } else {
@@ -256,10 +286,12 @@ export const useFocusStore = create<FocusState>()(
             autoStartFocus,
             autoStartShortBreak,
             autoStartLongBreak,
-            autoStartQuiz,
             subject,
             topic,
             notes,
+            aiQuizEnabled,
+            quizFrequency,
+            completedSessionsForQuizCount,
           } = get();
 
           // Cancel any notifications
@@ -270,16 +302,29 @@ export const useFocusStore = create<FocusState>()(
             clearInterval((get() as any)._intervalId);
           }
 
-          set({ isRunning: false, startTime: null, secondsElapsedBeforeStart: 0, _intervalId: null });
+          set({ isRunning: false, startTime: null, secondsElapsedBeforeStart: 0, _intervalId: null, focusSprintFinished: false });
 
           if (mode === 'focus') {
             const nextSessionsToday = completedSessionsToday + 1;
             const nextSessionsTotal = completedSessionsTotal + 1;
 
-            // Trigger XP update in authStore
+            // Increment AI Quiz session counter if quiz is enabled
+            let nextQuizCount = completedSessionsForQuizCount;
+            let triggerQuiz = false;
+
+            if (aiQuizEnabled) {
+              nextQuizCount += 1;
+              if (nextQuizCount >= quizFrequency) {
+                triggerQuiz = true;
+                nextQuizCount = 0; // Reset counter
+              }
+            }
+
+            // Trigger XP update in authStore (1 min focus = 1 XP)
             const user = useAuthStore.getState().user;
+            const xpEarned = focusDuration;
             if (user) {
-              await useAuthStore.getState().addXP(25); // 25 XP for focus session completion
+              await useAuthStore.getState().addXP(xpEarned);
               await useAuthStore.getState().updateStreak();
               
               // Save Focus Session to DB
@@ -299,12 +344,18 @@ export const useFocusStore = create<FocusState>()(
             set({
               completedSessionsToday: nextSessionsToday,
               completedSessionsTotal: nextSessionsTotal,
+              completedSessionsForQuizCount: nextQuizCount,
+              lastCompletedSprintStats: {
+                duration: focusDuration,
+                xpEarned: xpEarned,
+                triggerQuiz: triggerQuiz,
+              }
             });
 
             // Determine if next is a long break or a quiz or short break
             const shouldTakeLongBreak = nextSessionsToday % sessionsBeforeLongBreak === 0;
 
-            if (autoStartQuiz && (subject.trim() || topic.trim())) {
+            if (triggerQuiz) {
               set({
                 mode: 'quizReady',
                 timeLeft: 0,
@@ -343,7 +394,7 @@ export const useFocusStore = create<FocusState>()(
           
           Notifications.cancelScheduledNotificationAsync(`lumora-timer-${mode}`).catch(() => {});
           
-          set({ isRunning: false, startTime: null, secondsElapsedBeforeStart: 0 });
+          set({ isRunning: false, startTime: null, secondsElapsedBeforeStart: 0, focusSprintFinished: false });
 
           if (mode === 'focus') {
             const shouldTakeLongBreak = (completedSessionsToday + 1) % sessionsBeforeLongBreak === 0;
@@ -367,23 +418,25 @@ export const useFocusStore = create<FocusState>()(
           const { completedSessionsToday, sessionsBeforeLongBreak, shortBreakDuration, longBreakDuration, autoStartShortBreak, autoStartLongBreak } = get();
           const shouldTakeLongBreak = completedSessionsToday % sessionsBeforeLongBreak === 0;
 
-          if (shouldTakeLongBreak) {
-            set({
-              mode: 'longBreak',
-              timeLeft: minToSec(longBreakDuration),
-            });
-            if (autoStartLongBreak) {
-              get().startTimer();
-            }
-          } else {
-            set({
-              mode: 'shortBreak',
-              timeLeft: minToSec(shortBreakDuration),
-            });
-            if (autoStartShortBreak) {
-              get().startTimer();
-            }
+          set({
+            mode: shouldTakeLongBreak ? 'longBreak' : 'shortBreak',
+            timeLeft: minToSec(shouldTakeLongBreak ? longBreakDuration : shortBreakDuration),
+            lastCompletedSprintStats: null,
+            focusSprintFinished: false,
+          });
+
+          const autoStartNext = shouldTakeLongBreak ? autoStartLongBreak : autoStartShortBreak;
+          if (autoStartNext) {
+            get().startTimer();
           }
+        },
+
+        dismissWaterReminder: () => {
+          set({ showWaterReminder: false });
+        },
+
+        clearLastCompletedSprintStats: () => {
+          set({ lastCompletedSprintStats: null, focusSprintFinished: false });
         },
       };
     },
@@ -402,6 +455,11 @@ export const useFocusStore = create<FocusState>()(
         completedSessionsToday: state.completedSessionsToday,
         completedSessionsTotal: state.completedSessionsTotal,
         mode: state.mode,
+        aiQuizEnabled: state.aiQuizEnabled,
+        quizFrequency: state.quizFrequency,
+        completedSessionsForQuizCount: state.completedSessionsForQuizCount,
+        waterReminderEnabled: state.waterReminderEnabled,
+        waterReminderInterval: state.waterReminderInterval,
       }),
     }
   )

@@ -229,3 +229,39 @@ export const saveQuiz = async (quiz: Quiz): Promise<void> => {
   quizzes.push(quiz);
   await AsyncStorage.setItem(`lumora_quizzes_${quiz.userId}`, JSON.stringify(quizzes));
 };
+
+// ==========================================
+// HYDRATION LOG DATABASE OPERATIONS
+// ==========================================
+
+export interface HydrationLog {
+  id: string;
+  userId: string;
+  timestamp: string;
+  xpAwarded: number;
+}
+
+export const saveHydrationLog = async (userId: string, amountXp: number): Promise<void> => {
+  const log: HydrationLog = {
+    id: 'hydration-' + Math.random().toString(36).substr(2, 9),
+    userId,
+    timestamp: new Date().toISOString(),
+    xpAwarded: amountXp,
+  };
+
+  if (isFirebaseEnabled && db) {
+    try {
+      const docRef = doc(db, 'hydration', log.id);
+      await setDoc(docRef, log);
+      return;
+    } catch (e) {
+      console.error('Error saving hydration log to Firestore, checking offline:', e);
+    }
+  }
+
+  // Local storage fallback
+  const localData = await AsyncStorage.getItem(`lumora_hydration_${userId}`);
+  const logs: HydrationLog[] = safeParse(localData, []);
+  logs.push(log);
+  await AsyncStorage.setItem(`lumora_hydration_${userId}`, JSON.stringify(logs));
+};

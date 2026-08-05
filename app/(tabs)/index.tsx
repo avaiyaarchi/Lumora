@@ -223,25 +223,7 @@ export default function HomeScreen() {
       </View>
 
       {/* Goal Progress Bar */}
-      <Card style={styles.goalCard}>
-        <View style={styles.goalHeader}>
-          <Text style={[styles.goalTitle, { color: colors.textPrimary }]}>Today's Focus Goal</Text>
-          <Text style={[styles.goalProgress, { color: colors.primary }]}>
-            {completedSessionsToday} / 8 sessions
-          </Text>
-        </View>
-        <View style={[styles.progressBarBg, { backgroundColor: colors.progressBg }]}>
-          <View
-            style={[
-              styles.progressBarFill,
-              {
-                backgroundColor: colors.primary,
-                width: `${Math.min(100, (completedSessionsToday / 8) * 100)}%`,
-              },
-            ]}
-          />
-        </View>
-      </Card>
+
 
       {/* Central Timer & Avatar Section */}
       <View style={styles.timerSection}>
@@ -249,7 +231,7 @@ export default function HomeScreen() {
           <AvatarLayer
             avatar={user?.equippedAvatar || 'cat'}
             accessories={user?.equippedAccessories || []}
-            size={120}
+            size={140}
           />
           <TimerCircle timeLeft={timeLeft} totalDuration={getActiveDuration()} mode={mode} />
         </View>
@@ -277,7 +259,6 @@ export default function HomeScreen() {
             title="Skip"
             variant="ghost"
             onPress={skipToNext}
-            style={styles.controlBtnGhost}
           />
 
           <Pressable
@@ -337,13 +318,7 @@ export default function HomeScreen() {
         </Card>
       </View>
 
-      {/* Today's Flow Chain */}
-      <View style={[styles.sectionContainer, { marginBottom: 110 }]}>
-        <Text style={[styles.sectionTitle, { color: colors.textPrimary, marginBottom: 16 }]}>
-          Today's Flow
-        </Text>
-        {renderFlowStrip()}
-      </View>
+
 
       {/* TIMER SETTINGS MODAL */}
       <Modal visible={settingsVisible} animationType="slide" transparent>
@@ -612,7 +587,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 20,
     marginBottom: 28,
   },
   controlsRow: {
@@ -628,9 +602,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
-  controlBtnGhost: {
-    width: 60,
-  },
+
   resetIconButton: {
     width: 48,
     height: 48,

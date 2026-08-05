@@ -9,6 +9,7 @@ import { Card } from '../../src/components/Card';
 import { Input } from '../../src/components/Input';
 import { Button } from '../../src/components/Button';
 import { Sparkles, Mail, Lock, Check } from 'lucide-react-native';
+import { LumoraLogo } from '../../src/components/LumoraLogo';
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -67,10 +68,9 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <View style={[styles.logoIcon, { backgroundColor: colors.secondary }]}>
-            <Sparkles size={36} color={colors.primary} />
+          <View style={{ marginBottom: 12 }}>
+            <LumoraLogo size={64} showWordmark />
           </View>
-          <Text style={[styles.appName, { color: colors.textPrimary }]}>Lumora</Text>
           <Text style={[styles.tagline, { color: colors.textSecondary }]}>
             Study Better. Stay Focused. Learn Smarter.
           </Text>

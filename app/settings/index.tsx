@@ -6,7 +6,10 @@ import { useAuthStore } from '../../src/store/authStore';
 import { useFocusStore } from '../../src/store/focusStore';
 import { Card } from '../../src/components/Card';
 import { Button } from '../../src/components/Button';
+import { Input } from '../../src/components/Input';
 import { ArrowLeft, Clock, Brain, Bell, Palette, User, LogOut, Trash2 } from 'lucide-react-native';
+import Constants from 'expo-constants';
+import { LumoraLogo } from '../../src/components/LumoraLogo';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -24,14 +27,24 @@ export default function SettingsScreen() {
     autoStartShortBreak,
     autoStartLongBreak,
     autoStartQuiz,
+    aiQuizEnabled,
+    quizFrequency,
+    waterReminderEnabled,
+    waterReminderInterval,
     setSettings,
   } = useFocusStore();
 
   // Local notification toggles
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
-  const [waterReminderEnabled, setWaterReminderEnabled] = useState(true);
   const [dailyReminderEnabled, setDailyReminderEnabled] = useState(true);
+
+  // Custom Selector States
+  const [isCustomQuiz, setIsCustomQuiz] = useState(![1, 2, 3, 5].includes(quizFrequency));
+  const [customQuizFreq, setCustomQuizFreq] = useState(![1, 2, 3, 5].includes(quizFrequency) ? quizFrequency.toString() : '');
+
+  const [isCustomWater, setIsCustomWater] = useState(![15, 20, 25, 30, 45, 60].includes(waterReminderInterval));
+  const [customWaterInterval, setCustomWaterInterval] = useState(![15, 20, 25, 30, 45, 60].includes(waterReminderInterval) ? waterReminderInterval.toString() : '');
 
   const handleLogout = async () => {
     await logout();
@@ -122,11 +135,71 @@ export default function SettingsScreen() {
             <Text style={[styles.rowLabel, { color: colors.textPrimary }]}>Water Sip Reminders</Text>
             <Switch
               value={waterReminderEnabled}
-              onValueChange={setWaterReminderEnabled}
+              onValueChange={(val) => setSettings({ waterReminderEnabled: val })}
               trackColor={{ false: colors.border, true: colors.primary }}
               thumbColor="#FFFFFF"
             />
           </View>
+          
+          {waterReminderEnabled && (
+            <View style={styles.settingsRowColumn}>
+              <Text style={[styles.rowLabel, { color: colors.textPrimary, marginBottom: 8 }]}>Reminder Interval</Text>
+              <View style={styles.chipRow}>
+                {[15, 20, 25, 30, 45, 60].map((opt) => (
+                  <Pressable
+                    key={opt}
+                    onPress={() => {
+                      setIsCustomWater(false);
+                      setSettings({ waterReminderInterval: opt });
+                    }}
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor: !isCustomWater && waterReminderInterval === opt ? colors.primary : colors.progressBg,
+                        borderColor: !isCustomWater && waterReminderInterval === opt ? colors.primary : colors.border,
+                      }
+                    ]}
+                  >
+                    <Text style={[styles.chipText, { color: !isCustomWater && waterReminderInterval === opt ? '#FFF' : colors.textPrimary }]}>
+                      {opt}m
+                    </Text>
+                  </Pressable>
+                ))}
+                <Pressable
+                  onPress={() => setIsCustomWater(true)}
+                  style={[
+                    styles.chip,
+                    {
+                      backgroundColor: isCustomWater ? colors.primary : colors.progressBg,
+                      borderColor: isCustomWater ? colors.primary : colors.border,
+                    }
+                  ]}
+                >
+                  <Text style={[styles.chipText, { color: isCustomWater ? '#FFF' : colors.textPrimary }]}>
+                    Custom
+                  </Text>
+                </Pressable>
+              </View>
+              {isCustomWater && (
+                <Input
+                  label="Interval (minutes):"
+                  placeholder="30"
+                  value={customWaterInterval}
+                  onChangeText={(text) => {
+                    setCustomWaterInterval(text);
+                    const val = parseInt(text, 10);
+                    if (!isNaN(val) && val > 0) {
+                      setSettings({ waterReminderInterval: val });
+                    }
+                  }}
+                  keyboardType="numeric"
+                  containerStyle={{ marginTop: 8 }}
+                  inputStyle={{ paddingVertical: 8 }}
+                />
+              )}
+            </View>
+          )}
+
           <View style={styles.settingsRow}>
             <Text style={[styles.rowLabel, { color: colors.textPrimary }]}>Daily Goal Reminders</Text>
             <Switch
@@ -141,8 +214,77 @@ export default function SettingsScreen() {
 
       {/* 3. AI Quiz Preferences */}
       <View style={styles.section}>
-        {renderSectionHeader('AI Review Mode', Brain)}
+        {renderSectionHeader('AI Quiz', Brain)}
         <Card style={styles.settingsCard} bordered>
+          <View style={styles.settingsRow}>
+            <Text style={[styles.rowLabel, { color: colors.textPrimary }]}>Enable AI Quiz</Text>
+            <Switch
+              value={aiQuizEnabled}
+              onValueChange={(val) => setSettings({ aiQuizEnabled: val })}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+
+          {aiQuizEnabled && (
+            <View style={styles.settingsRowColumn}>
+              <Text style={[styles.rowLabel, { color: colors.textPrimary, marginBottom: 8 }]}>Quiz Frequency</Text>
+              <View style={styles.chipRow}>
+                {[1, 2, 3, 5].map((opt) => (
+                  <Pressable
+                    key={opt}
+                    onPress={() => {
+                      setIsCustomQuiz(false);
+                      setSettings({ quizFrequency: opt });
+                    }}
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor: !isCustomQuiz && quizFrequency === opt ? colors.primary : colors.progressBg,
+                        borderColor: !isCustomQuiz && quizFrequency === opt ? colors.primary : colors.border,
+                      }
+                    ]}
+                  >
+                    <Text style={[styles.chipText, { color: !isCustomQuiz && quizFrequency === opt ? '#FFF' : colors.textPrimary }]}>
+                      Every {opt}
+                    </Text>
+                  </Pressable>
+                ))}
+                <Pressable
+                  onPress={() => setIsCustomQuiz(true)}
+                  style={[
+                    styles.chip,
+                    {
+                      backgroundColor: isCustomQuiz ? colors.primary : colors.progressBg,
+                      borderColor: isCustomQuiz ? colors.primary : colors.border,
+                    }
+                  ]}
+                >
+                  <Text style={[styles.chipText, { color: isCustomQuiz ? '#FFF' : colors.textPrimary }]}>
+                    Custom
+                  </Text>
+                </Pressable>
+              </View>
+              {isCustomQuiz && (
+                <Input
+                  label="Every (completed focus sessions):"
+                  placeholder="3"
+                  value={customQuizFreq}
+                  onChangeText={(text) => {
+                    setCustomQuizFreq(text);
+                    const val = parseInt(text, 10);
+                    if (!isNaN(val) && val > 0) {
+                      setSettings({ quizFrequency: val });
+                    }
+                  }}
+                  keyboardType="numeric"
+                  containerStyle={{ marginTop: 8 }}
+                  inputStyle={{ paddingVertical: 8 }}
+                />
+              )}
+            </View>
+          )}
+
           <View style={styles.settingsRow}>
             <Text style={[styles.rowLabel, { color: colors.textPrimary }]}>Auto-start Quiz</Text>
             <Switch
@@ -192,6 +334,16 @@ export default function SettingsScreen() {
               style={styles.actionBtn}
             />
           </View>
+        </Card>
+      </View>
+
+      {/* 5. About Lumora */}
+      <View style={[styles.section, { marginBottom: 40, alignItems: 'center' }]}>
+        <Card style={[styles.settingsCard, { width: '100%', alignItems: 'center', paddingVertical: 24 }]} bordered>
+          <LumoraLogo size={80} showWordmark />
+          <Text style={{ color: colors.textSecondary, marginTop: 8, fontSize: 13, fontWeight: '600' }}>
+            Version {Constants.expoConfig?.version || '1.0.0'}
+          </Text>
         </Card>
       </View>
     </ScrollView>
@@ -264,5 +416,28 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     flex: 1,
+  },
+  settingsRowColumn: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F6F6F6',
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  chip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipText: {
+    fontSize: 12,
+    fontWeight: '800',
   },
 });

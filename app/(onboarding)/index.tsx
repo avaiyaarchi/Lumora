@@ -6,6 +6,7 @@ import { useAuthStore } from '../../src/store/authStore';
 import { Card } from '../../src/components/Card';
 import { Button } from '../../src/components/Button';
 import { Sparkles, Timer, Brain, Flame, ArrowRight } from 'lucide-react-native';
+import { LumoraLogo } from '../../src/components/LumoraLogo';
 
 export default function OnboardingScreen() {
   const colors = useThemeStore((state) => state.getColors());
@@ -72,9 +73,15 @@ export default function OnboardingScreen() {
       {/* Main Illustration & Text Content Card */}
       <View style={styles.contentContainer}>
         <Card style={styles.card} bordered>
-          <View style={[styles.iconWrapper, { backgroundColor: colors.secondary }]}>
-            {currentStep.icon(colors.primary)}
-          </View>
+          {activeStep === 0 ? (
+            <View style={{ marginBottom: 24 }}>
+              <LumoraLogo size={72} showWordmark />
+            </View>
+          ) : (
+            <View style={[styles.iconWrapper, { backgroundColor: colors.secondary }]}>
+              {currentStep.icon(colors.primary)}
+            </View>
+          )}
           
           <Text style={[styles.title, { color: colors.textPrimary }]}>
             {currentStep.title}

@@ -1,0 +1,33 @@
+<!--
+  Theme-aware version for web/CSS contexts.
+  Set these custom properties on a parent element per active theme,
+  e.g. .theme-midnight { --lumora-ray-start:#A78BFA; --lumora-ray-end:#7C3AED; --lumora-core:#EDE9FE; }
+-->
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="rayGradientDynamic" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="var(--lumora-ray-start, #C9B6FF)"/>
+      <stop offset="100%" stop-color="var(--lumora-ray-end, #8B5CF6)"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(100,100)">
+    <g id="ray-long-d">
+      <path d="M 0,0 C 14,-12 15,-40 0,-82 C -15,-40 -14,-12 0,0 Z" fill="url(#rayGradientDynamic)"/>
+    </g>
+    <use href="#ray-long-d" transform="rotate(0)"/>
+    <use href="#ray-long-d" transform="rotate(90)"/>
+    <use href="#ray-long-d" transform="rotate(180)"/>
+    <use href="#ray-long-d" transform="rotate(270)"/>
+
+    <g id="ray-short-d">
+      <path d="M 0,0 C 9,-8 10,-24 0,-52 C -10,-24 -9,-8 0,0 Z" fill="url(#rayGradientDynamic)" opacity="0.85"/>
+    </g>
+    <use href="#ray-short-d" transform="rotate(45)"/>
+    <use href="#ray-short-d" transform="rotate(135)"/>
+    <use href="#ray-short-d" transform="rotate(225)"/>
+    <use href="#ray-short-d" transform="rotate(315)"/>
+
+    <circle cx="0" cy="0" r="19" fill="var(--lumora-core, #FFFFFF)"/>
+  </g>
+</svg>

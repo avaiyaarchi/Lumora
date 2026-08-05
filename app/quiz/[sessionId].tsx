@@ -1,17 +1,20 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, ScrollView, Pressable, ActivityIndicator, SafeAreaView, Platform } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useThemeStore } from '../../src/store/themeStore';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { AlertTriangle, Award, Brain, Check, Sparkles, X } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Button } from '../../src/components/Button';
+import { Card } from '../../src/components/Card';
+import { Input } from '../../src/components/Input';
+import { explainMistakes, generateQuiz } from '../../src/services/ai/gemini';
+import { saveQuiz } from '../../src/services/firebase/firestore';
 import { useAuthStore } from '../../src/store/authStore';
 import { useFocusStore } from '../../src/store/focusStore';
-import { Card } from '../../src/components/Card';
-import { Button } from '../../src/components/Button';
-import { generateQuiz, explainMistakes } from '../../src/services/ai/gemini';
-import { saveQuiz } from '../../src/services/firebase/firestore';
+import { useThemeStore } from '../../src/store/themeStore';
 import { QuizQuestion } from '../../src/types';
-import { Brain, Sparkles, AlertTriangle, ArrowRight, Check, X, Award } from 'lucide-react-native';
+import { LumoraLogo } from '../../src/components/LumoraLogo';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming } from 'react-native-reanimated';
 
-type QuizState = 'loading' | 'error' | 'active' | 'review';
+type QuizState = 'setup' | 'loading' | 'error' | 'active' | 'summary';
 
 export default function QuizScreen() {
   const router = useRouter();
@@ -19,29 +22,53 @@ export default function QuizScreen() {
   const colors = useThemeStore((state) => state.getColors());
   const user = useAuthStore((state) => state.user);
   const addXP = useAuthStore((state) => state.addXP);
-  const { subject, topic, notes, completeQuiz } = useFocusStore();
+  const { subject, topic, notes, completeQuiz, setContext } = useFocusStore();
+
+  // Opacity pulsing for loading states
+  const opacity = useSharedValue(0.4);
+  useEffect(() => {
+    opacity.value = withRepeat(withTiming(1, { duration: 600 }), -1, true);
+  }, []);
+  const pulseAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
+
+  // Initial setup state
+  const hasStudyMaterial = notes && notes.trim() !== '';
+  const hasSubjectTopic = subject.trim() !== '' && topic.trim() !== '';
+  const [needsSetup, setNeedsSetup] = useState(!hasStudyMaterial && !hasSubjectTopic);
+  const [setupSubject, setSetupSubject] = useState(subject);
+  const [setupTopic, setSetupTopic] = useState(topic);
 
   // Quiz States
-  const [quizState, setQuizState] = useState<QuizState>('loading');
+  const [quizState, setQuizState] = useState<QuizState>('setup');
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [currentIdx, setCurrentIdx] = useState(0);
-  const [selectedAnswers, setSelectedAnswers] = useState<number[]>([]);
+  const [userAnswers, setUserAnswers] = useState<Record<number, number>>({});
   const [score, setScore] = useState(0);
   const [xpAwarded, setXpAwarded] = useState(0);
-  
-  // Custom API-generated explanations for wrong answers
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [retryTrigger, setRetryTrigger] = useState(0);
+
+  // Custom Gemini explanation states
   const [aiExplanations, setAiExplanations] = useState<Record<number, string>>({});
   const [loadingExplanation, setLoadingExplanation] = useState<Record<number, boolean>>({});
 
-  // Generate Quiz on mount
+  // Generate Quiz
   useEffect(() => {
+    if (needsSetup) {
+      setQuizState('setup');
+      return;
+    }
+
     let active = true;
-    const fetchQuiz = async () => {
+    const fetchQuizData = async () => {
       try {
         setQuizState('loading');
+        setErrorMessage('');
         const generated = await generateQuiz(
-          subject || 'General Studies',
-          topic || 'Core concepts',
+          subject || setupSubject,
+          topic || setupTopic,
           notes,
           undefined,
           5, // 5 questions default
@@ -49,98 +76,100 @@ export default function QuizScreen() {
         );
         if (active) {
           setQuestions(generated);
-          setSelectedAnswers(new Array(generated.length).fill(-1));
           setQuizState('active');
+          setCurrentIdx(0);
+          setUserAnswers({});
+          setScore(0);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to load quiz:', err);
-        if (active) setQuizState('error');
+        if (active) {
+          setErrorMessage(err?.message || "We couldn't connect to the AI service. Would you like to skip the quiz and proceed to your break?");
+          setQuizState('error');
+        }
       }
     };
 
-    fetchQuiz();
+    fetchQuizData();
     return () => {
       active = false;
     };
-  }, [subject, topic, notes]);
+  }, [needsSetup, retryTrigger]);
 
-  const handleSelectOption = (optIdx: number) => {
-    const updated = [...selectedAnswers];
-    updated[currentIdx] = optIdx;
-    setSelectedAnswers(updated);
-  };
-
-  const handleNext = () => {
-    if (currentIdx < questions.length - 1) {
-      setCurrentIdx(currentIdx + 1);
-    }
-  };
-
-  const handlePrev = () => {
-    if (currentIdx > 0) {
-      setCurrentIdx(currentIdx - 1);
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (selectedAnswers.includes(-1)) {
-      // Prompt user that they missed questions
+  // Handle Form Submission for Setup
+  const handleStartSetupQuiz = () => {
+    if (setupSubject.trim() === '' || setupTopic.trim() === '') {
       return;
     }
-
-    setQuizState('loading');
-
-    // Calculate score
-    let correctCount = 0;
-    questions.forEach((q, idx) => {
-      if (q.correctAnswerIndex === selectedAnswers[idx]) {
-        correctCount += 1;
-      }
+    setContext({
+      subject: setupSubject,
+      topic: setupTopic,
     });
-
-    // XP calculation
-    // +5 XP per correct answer, +20 XP for perfect quiz
-    const normalXp = correctCount * 5;
-    const perfectXp = correctCount === questions.length ? 20 : 0;
-    const totalXp = normalXp + perfectXp;
-
-    setScore(correctCount);
-    setXpAwarded(totalXp);
-
-    // Save to database
-    if (user) {
-      // Award XP to store
-      await addXP(totalXp);
-
-      const quizData = {
-        id: 'quiz-' + Math.random().toString(36).substr(2, 9),
-        sessionId: Array.isArray(sessionId) ? sessionId[0] : sessionId || 'no-session-id',
-        userId: user.uid,
-        subject: subject || 'General Studies',
-        topic: topic || 'Core concepts',
-        questions: questions,
-        score: correctCount,
-        totalQuestions: questions.length,
-        timestamp: new Date().toISOString(),
-      };
-      await saveQuiz(quizData);
-    }
-
-    setQuizState('review');
+    setNeedsSetup(false);
   };
 
-  // Request detailed explanation of mistake from Gemini
+  // Option selection - gives instant feedback
+  const handleSelectOption = (optIdx: number) => {
+    // If already answered this question, do not allow changing answer
+    if (userAnswers[currentIdx] !== undefined) return;
+
+    const correctIndex = questions[currentIdx].correctAnswerIndex;
+    const isCorrect = optIdx === correctIndex;
+
+    setUserAnswers((prev) => ({ ...prev, [currentIdx]: optIdx }));
+    if (isCorrect) {
+      setScore((prev) => prev + 1);
+    }
+  };
+
+  // Explanation mistake breakdown from Gemini
   const handleLoadAiExplanation = async (qIdx: number, questionObj: QuizQuestion, selectedIdx: number) => {
     if (aiExplanations[qIdx]) return; // already loaded
-    
+
     setLoadingExplanation((prev) => ({ ...prev, [qIdx]: true }));
     try {
       const explanationText = await explainMistakes(questionObj, selectedIdx);
       setAiExplanations((prev) => ({ ...prev, [qIdx]: explanationText }));
-    } catch (err) {
+    } catch (err: any) {
       console.log('Error loading AI explanation:', err);
+      setAiExplanations((prev) => ({ ...prev, [qIdx]: err?.message || 'Failed to load AI explanation.' }));
     } finally {
       setLoadingExplanation((prev) => ({ ...prev, [qIdx]: false }));
+    }
+  };
+
+  // Next or Submit Question
+  const handleNextOrFinish = async () => {
+    if (currentIdx < questions.length - 1) {
+      setCurrentIdx(currentIdx + 1);
+    } else {
+      // Last question - submit quiz results
+      setQuizState('loading');
+
+      // Calculate XP
+      const normalXp = score * 2;
+      const perfectXp = score === questions.length ? 20 : 0;
+      const totalXp = normalXp + perfectXp;
+      setXpAwarded(totalXp);
+
+      if (user) {
+        await addXP(totalXp);
+
+        const quizData = {
+          id: 'quiz-' + Math.random().toString(36).substr(2, 9),
+          sessionId: Array.isArray(sessionId) ? sessionId[0] : sessionId || 'no-session-id',
+          userId: user.uid,
+          subject: subject || setupSubject,
+          topic: topic || setupTopic,
+          questions: questions,
+          score: score,
+          totalQuestions: questions.length,
+          timestamp: new Date().toISOString(),
+        };
+        await saveQuiz(quizData);
+      }
+
+      setQuizState('summary');
     }
   };
 
@@ -149,12 +178,58 @@ export default function QuizScreen() {
     router.replace('/(tabs)' as any);
   };
 
+  // ==========================================
+  // RENDER SETUP STATE
+  // ==========================================
+  if (quizState === 'setup') {
+    return (
+      <SafeAreaView style={[styles.centerContainer, { backgroundColor: colors.background }]}>
+        <ScrollView contentContainerStyle={styles.setupScroll} keyboardShouldPersistTaps="handled">
+          <Card style={styles.setupCard} bordered>
+            <View style={styles.setupHeader}>
+              <Brain size={42} color={colors.primary} />
+              <Text style={[styles.setupTitle, { color: colors.textPrimary }]}>Let's prepare your quiz ✨</Text>
+              <Text style={[styles.setupSubtitle, { color: colors.textSecondary }]}>
+                I need to know what you studied so I can create a personalized quiz.
+              </Text>
+            </View>
+
+            <Input
+              label="Subject"
+              placeholder="e.g. Operating Systems"
+              value={setupSubject}
+              onChangeText={setSetupSubject}
+            />
+
+            <Input
+              label="Topic(s)"
+              placeholder="Example: Deadlocks, Scheduling, Synchronization"
+              value={setupTopic}
+              onChangeText={setSetupTopic}
+            />
+
+            <Button
+              title="Generate Quiz"
+              onPress={handleStartSetupQuiz}
+              disabled={setupSubject.trim() === '' || setupTopic.trim() === ''}
+              style={{ marginTop: 14 }}
+            />
+          </Card>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // ==========================================
   // RENDER LOADING STATE
+  // ==========================================
   if (quizState === 'loading') {
     return (
       <SafeAreaView style={[styles.centerContainer, { backgroundColor: colors.background }]}>
         <View style={styles.loadingWrapper}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <Animated.View style={[pulseAnimatedStyle, { marginBottom: 20 }]}>
+            <LumoraLogo size={48} />
+          </Animated.View>
           <Text style={[styles.loadingText, { color: colors.textPrimary }]}>
             Lumora is generating your revision quiz...
           </Text>
@@ -166,7 +241,9 @@ export default function QuizScreen() {
     );
   }
 
+  // ==========================================
   // RENDER ERROR STATE
+  // ==========================================
   if (quizState === 'error') {
     return (
       <SafeAreaView style={[styles.centerContainer, { backgroundColor: colors.background }]}>
@@ -174,7 +251,7 @@ export default function QuizScreen() {
           <AlertTriangle size={48} color={colors.error} style={{ marginBottom: 16 }} />
           <Text style={[styles.errorTitle, { color: colors.textPrimary }]}>Quiz Generation Failed</Text>
           <Text style={[styles.errorMsg, { color: colors.textSecondary }]}>
-            We couldn't connect to the AI service. Would you like to skip the quiz and proceed to your break?
+            {errorMessage}
           </Text>
           <View style={{ width: '100%', gap: 12 }}>
             <Button
@@ -185,8 +262,9 @@ export default function QuizScreen() {
               title="Retry Generation"
               variant="secondary"
               onPress={() => {
+                setNeedsSetup(false);
                 setQuizState('loading');
-                router.replace(`/quiz/${sessionId}` as any);
+                setRetryTrigger((prev) => prev + 1);
               }}
             />
           </View>
@@ -195,20 +273,22 @@ export default function QuizScreen() {
     );
   }
 
-  const currentQuestion = questions[currentIdx];
-  const userSelection = selectedAnswers[currentIdx];
-
-  // RENDER ACTIVE QUIZ VIEW
+  // ==========================================
+  // RENDER ACTIVE QUIZ STATE
+  // ==========================================
   if (quizState === 'active') {
-    const isCompleted = !selectedAnswers.includes(-1);
+    const currentQuestion = questions[currentIdx];
+    const userSelection = userAnswers[currentIdx];
+    const isAnswered = userSelection !== undefined;
+    const correctIndex = currentQuestion.correctAnswerIndex;
 
     return (
       <SafeAreaView style={[styles.mainContainer, { backgroundColor: colors.background }]}>
         <View style={styles.topHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Brain size={22} color={colors.primary} />
-            <Text style={[styles.quizSubject, { color: colors.textPrimary }]}>
-              {subject || 'Revision Quiz'}
+            <Text style={[styles.quizSubject, { color: colors.textPrimary }]} numberOfLines={1}>
+              {subject || setupSubject}
             </Text>
           </View>
           <Text style={[styles.progressText, { color: colors.textSecondary }]}>
@@ -229,7 +309,10 @@ export default function QuizScreen() {
           />
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <Text style={[styles.quizHeaderTitle, { color: colors.textPrimary }]}>✨ Knowledge Check</Text>
+          <Text style={[styles.quizSubtitleText, { color: colors.textSecondary }]}>Let's see what you remember.</Text>
+
           <Card style={styles.questionCard} bordered>
             <Text style={[styles.questionText, { color: colors.textPrimary }]}>
               {currentQuestion.question}
@@ -240,188 +323,162 @@ export default function QuizScreen() {
           <View style={styles.optionsList}>
             {currentQuestion.options.map((option, idx) => {
               const isSelected = userSelection === idx;
+              const isCorrectOpt = idx === correctIndex;
+
+              // Define style states
+              let chipBorder = colors.border;
+              let chipBg = colors.card;
+              let indicatorBg = colors.border;
+              let textWeight = '500';
+
+              if (isAnswered) {
+                if (isSelected) {
+                  if (isCorrectOpt) {
+                    chipBorder = colors.success;
+                    chipBg = colors.success + '15';
+                    indicatorBg = colors.success;
+                  } else {
+                    chipBorder = colors.error;
+                    chipBg = colors.error + '15';
+                    indicatorBg = colors.error;
+                  }
+                  textWeight = '700';
+                } else if (isCorrectOpt) {
+                  chipBorder = colors.success;
+                  chipBg = colors.success + '10';
+                  indicatorBg = colors.success;
+                }
+              } else if (isSelected) {
+                chipBorder = colors.primary;
+                chipBg = colors.secondary;
+                indicatorBg = colors.primary;
+                textWeight = '700';
+              }
+
               return (
                 <Pressable
                   key={idx}
                   onPress={() => handleSelectOption(idx)}
+                  disabled={isAnswered}
                   style={[
                     styles.optionChip,
                     {
-                      borderColor: isSelected ? colors.primary : colors.border,
-                      backgroundColor: isSelected ? colors.secondary : colors.card,
+                      borderColor: chipBorder,
+                      backgroundColor: chipBg,
+                      borderWidth: isSelected || (isAnswered && isCorrectOpt) ? 2 : 1,
                     },
                   ]}
                 >
-                  <View style={[styles.optionIndicator, { backgroundColor: isSelected ? colors.primary : colors.border }]}>
-                    <Text style={[styles.optionIndexText, { color: isSelected ? '#FFF' : colors.textSecondary }]}>
+                  <View style={[styles.optionIndicator, { backgroundColor: indicatorBg }]}>
+                    <Text style={[styles.optionIndexText, { color: '#FFF' }]}>
                       {['A', 'B', 'C', 'D'][idx]}
                     </Text>
                   </View>
-                  <Text style={[styles.optionText, { color: colors.textPrimary, fontWeight: isSelected ? '700' : '500' }]}>
+                  <Text style={[styles.optionText, { color: colors.textPrimary, fontWeight: textWeight as any }]}>
                     {option}
                   </Text>
                 </Pressable>
               );
             })}
           </View>
-        </ScrollView>
 
-        {/* Navigation bottom buttons */}
-        <View style={styles.navigationRow}>
-          <Button
-            title="Prev"
-            variant="ghost"
-            onPress={handlePrev}
-            disabled={currentIdx === 0}
-            style={styles.navBtn}
-          />
-
-          {currentIdx === questions.length - 1 ? (
-            <Button
-              title="Submit"
-              onPress={handleSubmit}
-              disabled={!isCompleted}
-              style={styles.navBtnSubmit}
-            />
-          ) : (
-            <Button
-              title="Next"
-              onPress={handleNext}
-              disabled={userSelection === -1}
-              style={styles.navBtnSubmit}
-            />
-          )}
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // RENDER REVIEW VIEW (AFTER SUBMISSION)
-  return (
-    <SafeAreaView style={[styles.mainContainer, { backgroundColor: colors.background }]}>
-      <ScrollView contentContainerStyle={styles.reviewScroll}>
-        
-        {/* Review Header card */}
-        <Card style={styles.scoreCard} bordered>
-          <Award size={48} color={colors.primary} style={{ marginBottom: 12 }} />
-          <Text style={[styles.scoreTitle, { color: colors.textPrimary }]}>Session Review</Text>
-          <Text style={[styles.scoreStats, { color: colors.primary }]}>
-            Score: {score} / {questions.length} Correct
-          </Text>
-          <View style={[styles.xpRow, { backgroundColor: colors.secondary }]}>
-            <Sparkles size={18} color={colors.primary} />
-            <Text style={[styles.xpText, { color: colors.primary }]}>
-              +{xpAwarded} XP Earned
-            </Text>
-          </View>
-        </Card>
-
-        {/* Detailed Question Review List */}
-        <Text style={[styles.reviewSectionTitle, { color: colors.textPrimary }]}>
-          Review Answers
-        </Text>
-
-        {questions.map((q, idx) => {
-          const selected = selectedAnswers[idx];
-          const correct = q.correctAnswerIndex;
-          const isCorrect = selected === correct;
-
-          return (
-            <Card key={idx} style={styles.reviewQuestionCard}>
-              <View style={styles.reviewQuestionHeader}>
-                <View style={[styles.statusIconCircle, { backgroundColor: isCorrect ? colors.success + '20' : colors.error + '20' }]}>
-                  {isCorrect ? (
+          {/* Instant Feedback Panel */}
+          {isAnswered && (
+            <Card style={[styles.feedbackCard, { borderColor: userSelection === correctIndex ? colors.success : colors.error }]} bordered>
+              <View style={styles.feedbackHeader}>
+                {userSelection === correctIndex ? (
+                  <View style={[styles.feedbackBadge, { backgroundColor: colors.success + '20' }]}>
                     <Check size={18} color={colors.success} strokeWidth={3} />
-                  ) : (
+                    <Text style={[styles.feedbackBadgeText, { color: colors.success }]}>Correct</Text>
+                  </View>
+                ) : (
+                  <View style={[styles.feedbackBadge, { backgroundColor: colors.error + '20' }]}>
                     <X size={18} color={colors.error} strokeWidth={3} />
-                  )}
-                </View>
-                <Text style={[styles.reviewQuestionNum, { color: colors.textSecondary }]}>
-                  Question {idx + 1}
-                </Text>
+                    <Text style={[styles.feedbackBadgeText, { color: colors.error }]}>Incorrect</Text>
+                  </View>
+                )}
               </View>
 
-              <Text style={[styles.reviewQuestionText, { color: colors.textPrimary }]}>
-                {q.question}
+              <Text style={[styles.explanationContent, { color: colors.textSecondary }]}>
+                {currentQuestion.explanation}
               </Text>
 
-              {/* Options status */}
-              <View style={styles.reviewOptionsList}>
-                {q.options.map((opt, optIdx) => {
-                  let chipBg = colors.card;
-                  let chipBorder = colors.border;
-                  let showBadge = null;
-
-                  if (optIdx === correct) {
-                    chipBg = colors.success + '15';
-                    chipBorder = colors.success;
-                    showBadge = <Check size={16} color={colors.success} strokeWidth={3} />;
-                  } else if (optIdx === selected) {
-                    chipBg = colors.error + '15';
-                    chipBorder = colors.error;
-                    showBadge = <X size={16} color={colors.error} strokeWidth={3} />;
-                  }
-
-                  return (
-                    <View
-                      key={optIdx}
-                      style={[
-                        styles.reviewOptionChip,
-                        {
-                          backgroundColor: chipBg,
-                          borderColor: chipBorder,
-                          borderWidth: optIdx === correct || optIdx === selected ? 2 : 1,
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.reviewOptionText, { color: colors.textPrimary, flex: 1 }]}>
-                        {opt}
-                      </Text>
-                      {showBadge}
-                    </View>
-                  );
-                })}
-              </View>
-
-              {/* Pre-generated Explanation */}
-              <View style={[styles.explanationBox, { backgroundColor: colors.progressBg }]}>
-                <Text style={[styles.explanationLabel, { color: colors.primary }]}>Explanation</Text>
-                <Text style={[styles.explanationTextContent, { color: colors.textSecondary }]}>
-                  {q.explanation}
-                </Text>
-              </View>
-
-              {/* Call to request custom AI breakdown if incorrect */}
-              {!isCorrect && (
+              {/* Gemini custom evaluation */}
+              {userSelection !== correctIndex && (
                 <View style={{ marginTop: 12 }}>
-                  {aiExplanations[idx] ? (
+                  {aiExplanations[currentIdx] ? (
                     <View style={[styles.aiExplanationBox, { borderColor: colors.primary, borderWidth: 1.5 }]}>
                       <Text style={[styles.aiExplanationLabel, { color: colors.primary }]}>Lumora's Mistake Breakdown</Text>
                       <Text style={[styles.aiExplanationText, { color: colors.textPrimary }]}>
-                        {aiExplanations[idx]}
+                        {aiExplanations[currentIdx]}
                       </Text>
                     </View>
                   ) : (
                     <Button
-                      title={loadingExplanation[idx] ? "Asking AI..." : "Explain My Mistake"}
+                      title={loadingExplanation[currentIdx] ? "Asking AI..." : "Explain My Mistake"}
                       variant="secondary"
                       size="small"
-                      onPress={() => handleLoadAiExplanation(idx, q, selected)}
-                      loading={loadingExplanation[idx]}
+                      onPress={() => handleLoadAiExplanation(currentIdx, currentQuestion, userSelection)}
+                      loading={loadingExplanation[currentIdx]}
                     />
                   )}
                 </View>
               )}
             </Card>
-          );
-        })}
+          )}
+        </ScrollView>
+
+        {/* Bottom Button Row */}
+        {isAnswered && (
+          <View style={styles.bottomBar}>
+            <Button
+              title={currentIdx === questions.length - 1 ? "Finish Quiz" : "Next Question"}
+              onPress={handleNextOrFinish}
+              style={{ flex: 1 }}
+            />
+          </View>
+        )}
+      </SafeAreaView>
+    );
+  }
+
+  // ==========================================
+  // RENDER SUMMARY STATE
+  // ==========================================
+  const renderSummaryMessage = () => {
+    const ratio = score / questions.length;
+    if (ratio === 1) return "Perfect score! You're mastering this topic!";
+    if (ratio >= 0.7) return "Great job! You have a solid grasp of this material.";
+    return "Keep going! Reviewing your notes will help reinforce this topic.";
+  };
+
+  return (
+    <SafeAreaView style={[styles.centerContainer, { backgroundColor: colors.background }]}>
+      <Card style={styles.scoreCard} bordered>
+        <Award size={52} color={colors.primary} style={{ marginBottom: 12 }} />
+        <Text style={[styles.scoreTitle, { color: colors.textPrimary }]}>Knowledge Check Complete</Text>
+
+        <Text style={[styles.scoreStats, { color: colors.primary }]}>
+          Score: {score} / {questions.length} Correct
+        </Text>
+
+        <Text style={[styles.encouragementMsg, { color: colors.textSecondary }]}>
+          {renderSummaryMessage()}
+        </Text>
+
+        <View style={[styles.xpRow, { backgroundColor: colors.secondary }]}>
+          <Sparkles size={18} color={colors.primary} />
+          <Text style={[styles.xpText, { color: colors.primary }]}>
+            +{xpAwarded} XP Earned
+          </Text>
+        </View>
 
         <Button
-          title="Back to Study"
+          title="Return to Home"
           onPress={handleFinish}
-          style={styles.finishBtn}
+          style={{ width: '100%', marginTop: 8 }}
         />
-      </ScrollView>
+      </Card>
     </SafeAreaView>
   );
 }
@@ -436,6 +493,31 @@ const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
     paddingTop: Platform.OS === 'ios' ? 60 : 30,
+  },
+  setupScroll: {
+    width: '100%',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  setupCard: {
+    padding: 24,
+    width: '100%',
+  },
+  setupHeader: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  setupTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  setupSubtitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 18,
   },
   loadingWrapper: {
     alignItems: 'center',
@@ -479,6 +561,7 @@ const styles = StyleSheet.create({
   quizSubject: {
     fontSize: 16,
     fontWeight: '800',
+    maxWidth: 200,
   },
   progressText: {
     fontSize: 13,
@@ -495,177 +578,141 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 24,
-    paddingBottom: 40,
+    paddingBottom: 110,
+  },
+  quizHeaderTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  quizSubtitleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 20,
   },
   questionCard: {
-    paddingVertical: 28,
-    paddingHorizontal: 20,
-    marginBottom: 24,
+    padding: 20,
+    marginBottom: 20,
   },
   questionText: {
-    fontSize: 18,
-    fontWeight: '800',
-    lineHeight: 24,
-    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 22,
   },
   optionsList: {
     gap: 12,
+    marginBottom: 24,
   },
   optionChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 18,
-    borderWidth: 2.5,
-    padding: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 16,
   },
   optionIndicator: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
   optionIndexText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '800',
   },
   optionText: {
-    fontSize: 15,
+    fontSize: 14,
     flex: 1,
   },
-  navigationRow: {
+  feedbackCard: {
+    padding: 16,
+    borderWidth: 1.5,
+    marginTop: 8,
+  },
+  feedbackHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
+    marginBottom: 10,
   },
-  navBtn: {
-    width: 90,
-  },
-  navBtnSubmit: {
-    width: 140,
-  },
-  // Review Styles
-  reviewScroll: {
-    paddingHorizontal: 24,
-    paddingTop: Platform.OS === 'ios' ? 40 : 20,
-    paddingBottom: 60,
-  },
-  scoreCard: {
-    alignItems: 'center',
-    paddingVertical: 28,
-    marginBottom: 28,
-  },
-  scoreTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    marginBottom: 4,
-  },
-  scoreStats: {
-    fontSize: 24,
-    fontWeight: '900',
-    marginBottom: 14,
-  },
-  xpRow: {
+  feedbackBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 18,
-    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    gap: 4,
   },
-  xpText: {
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  reviewSectionTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    marginBottom: 16,
-    marginLeft: 4,
-  },
-  reviewQuestionCard: {
-    padding: 18,
-    marginBottom: 20,
-  },
-  reviewQuestionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  statusIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  reviewQuestionNum: {
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  reviewQuestionText: {
-    fontSize: 16,
-    fontWeight: '800',
-    lineHeight: 22,
-    marginBottom: 16,
-  },
-  reviewOptionsList: {
-    gap: 8,
-    marginBottom: 14,
-  },
-  reviewOptionChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  reviewOptionText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  explanationBox: {
-    padding: 14,
-    borderRadius: 14,
-  },
-  explanationLabel: {
+  feedbackBadgeText: {
     fontSize: 12,
     fontWeight: '800',
     textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 4,
   },
-  explanationTextContent: {
-    fontSize: 13,
+  explanationContent: {
+    fontSize: 14,
     fontWeight: '600',
-    lineHeight: 18,
+    lineHeight: 20,
   },
   aiExplanationBox: {
-    padding: 14,
-    borderRadius: 14,
-    backgroundColor: '#FFFFFF',
-    marginTop: 8,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(142, 117, 200, 0.05)',
+    marginTop: 10,
   },
   aiExplanationLabel: {
     fontSize: 12,
     fontWeight: '800',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   aiExplanationText: {
     fontSize: 13,
     fontWeight: '600',
     lineHeight: 18,
   },
-  finishBtn: {
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 24,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    paddingTop: 10,
+  },
+  scoreCard: {
+    padding: 24,
+    alignItems: 'center',
     width: '100%',
-    marginTop: 10,
+  },
+  scoreTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  scoreStats: {
+    fontSize: 20,
+    fontWeight: '900',
+    marginBottom: 12,
+  },
+  encouragementMsg: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 20,
     marginBottom: 20,
+  },
+  xpRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    gap: 6,
+    marginBottom: 24,
+  },
+  xpText: {
+    fontSize: 14,
+    fontWeight: '800',
   },
 });

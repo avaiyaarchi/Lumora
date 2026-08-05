@@ -9,6 +9,7 @@ import { Card } from '../../src/components/Card';
 import { Input } from '../../src/components/Input';
 import { Button } from '../../src/components/Button';
 import { Mail, ArrowLeft, CheckCircle2 } from 'lucide-react-native';
+import { LumoraLogo } from '../../src/components/LumoraLogo';
 
 const resetSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -61,6 +62,9 @@ export default function ForgotPasswordScreen() {
         </Pressable>
 
         <View style={styles.header}>
+          <View style={{ marginBottom: 12 }}>
+            <LumoraLogo size={40} />
+          </View>
           <Text style={[styles.titleText, { color: colors.textPrimary }]}>Reset Password</Text>
           <Text style={[styles.subtitleText, { color: colors.textSecondary }]}>
             Enter your email and we'll send a recovery link.

@@ -8,10 +8,21 @@ import { FocusSession, Quiz, Achievement } from '../../src/types';
 import { Card } from '../../src/components/Card';
 import { Flame, Clock, Calendar, CheckSquare, Award, BookOpen, Sparkles, Star, Trophy, GraduationCap, Zap } from 'lucide-react-native';
 import { subDays, format, parseISO, eachDayOfInterval } from 'date-fns';
+import { LumoraLogo } from '../../src/components/LumoraLogo';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming } from 'react-native-reanimated';
 
 export default function ProgressScreen() {
   const colors = useThemeStore((state) => state.getColors());
   const user = useAuthStore((state) => state.user);
+
+  // Opacity pulsing for loading states
+  const opacity = useSharedValue(0.4);
+  useEffect(() => {
+    opacity.value = withRepeat(withTiming(1, { duration: 600 }), -1, true);
+  }, []);
+  const pulseAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
 
   // States
   const [loading, setLoading] = useState(true);
@@ -246,7 +257,9 @@ export default function ProgressScreen() {
   if (loading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <Animated.View style={pulseAnimatedStyle}>
+          <LumoraLogo size={48} />
+        </Animated.View>
       </View>
     );
   }

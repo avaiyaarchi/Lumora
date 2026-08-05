@@ -12,6 +12,8 @@ import { getXPNeededForNextLevel } from '../../src/constants/xp';
 import { FocusSession } from '../../src/types';
 import { Sparkles, Calendar, Award, Palette, Shirt, Sliders, LogOut, Sun, Moon, Laptop, Lock, Settings } from 'lucide-react-native';
 import { format, parseISO } from 'date-fns';
+import { LumoraLogo } from '../../src/components/LumoraLogo';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming } from 'react-native-reanimated';
 
 
 export default function ProfileScreen() {
@@ -28,6 +30,15 @@ export default function ProfileScreen() {
   const [history, setHistory] = useState<FocusSession[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [activeDressingTab, setActiveDressingTab] = useState<'avatar' | 'accessory'>('avatar');
+
+  // Opacity pulsing for loading states
+  const opacity = useSharedValue(0.4);
+  useEffect(() => {
+    opacity.value = withRepeat(withTiming(1, { duration: 600 }), -1, true);
+  }, []);
+  const pulseAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
 
   // Load history log
   useEffect(() => {
@@ -55,7 +66,9 @@ export default function ProfileScreen() {
   if (!user) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <Animated.View style={pulseAnimatedStyle}>
+          <LumoraLogo size={48} />
+        </Animated.View>
       </View>
     );
   }
@@ -393,7 +406,11 @@ export default function ProfileScreen() {
         <Text style={[styles.sectionHeading, { color: colors.textPrimary }]}>Study Log History</Text>
         <Card style={styles.historyCard} bordered>
           {loadingHistory ? (
-            <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 14 }} />
+            <View style={{ alignItems: 'center', marginVertical: 14 }}>
+              <Animated.View style={pulseAnimatedStyle}>
+                <LumoraLogo size={32} />
+              </Animated.View>
+            </View>
           ) : history.length === 0 ? (
             <Text style={[styles.noHistoryText, { color: colors.textSecondary }]}>
               You haven't completed any focus sessions yet. Start studying from the home page!

@@ -1,7 +1,17 @@
 import React from 'react';
-import { StyleSheet, Text, View, Dimensions } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import Animated, {
+  useAnimatedProps,
+  useSharedValue,
+  withTiming,
+  Easing,
+  cancelAnimation,
+} from 'react-native-reanimated';
 import Svg, { Circle, G } from 'react-native-svg';
 import { useThemeStore } from '../store/themeStore';
+import { useFocusStore } from '../store/focusStore';
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 interface TimerCircleProps {
   timeLeft: number; // in seconds
@@ -17,15 +27,46 @@ export const TimerCircle: React.FC<TimerCircleProps> = ({
   size = 230,
 }) => {
   const colors = useThemeStore((state) => state.getColors());
+  const isRunning = useFocusStore((state) => state.isRunning);
 
   const radius = size * 0.4;
   const strokeWidth = 14;
   const circumference = 2 * Math.PI * radius;
-  
+
   // Calculate progress ratio (0 = empty, 1 = full)
   // When timeLeft = totalDuration, progress = 1 (full ring)
   const progress = totalDuration > 0 ? timeLeft / totalDuration : 0;
-  const strokeDashoffset = circumference - progress * circumference;
+  const targetOffset = circumference - progress * circumference;
+
+  const animatedOffset = useSharedValue(targetOffset);
+  const prevTimeLeftRef = React.useRef(timeLeft);
+  const prevIsRunningRef = React.useRef(isRunning);
+
+  React.useEffect(() => {
+    const prevTime = prevTimeLeftRef.current;
+    const prevIsRunning = prevIsRunningRef.current;
+
+    prevTimeLeftRef.current = timeLeft;
+    prevIsRunningRef.current = isRunning;
+
+    const timeDifference = prevTime - timeLeft;
+
+    // If it's a regular tick (timeLeft decreased by 1) and the timer is running
+    if (isRunning && prevIsRunning && timeDifference === 1) {
+      animatedOffset.value = withTiming(targetOffset, {
+        duration: 1000,
+        easing: Easing.linear,
+      });
+    } else {
+      // If we just started, paused, reset, or skipped, snap immediately or stop animation
+      cancelAnimation(animatedOffset);
+      animatedOffset.value = targetOffset;
+    }
+  }, [timeLeft, isRunning, totalDuration, targetOffset]);
+
+  const animatedProps = useAnimatedProps(() => ({
+    strokeDashoffset: animatedOffset.value,
+  }));
 
   // Format time remaining: MM:SS
   const formatTime = (seconds: number) => {
@@ -63,7 +104,7 @@ export const TimerCircle: React.FC<TimerCircleProps> = ({
             strokeWidth={strokeWidth}
           />
           {/* Progress Circle with rounded ends */}
-          <Circle
+          <AnimatedCircle
             cx={size / 2}
             cy={size / 2}
             r={radius}
@@ -71,7 +112,7 @@ export const TimerCircle: React.FC<TimerCircleProps> = ({
             stroke={colors.primary}
             strokeWidth={strokeWidth}
             strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
+            animatedProps={animatedProps}
             strokeLinecap="round"
           />
         </G>

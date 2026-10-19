@@ -10,6 +10,7 @@ import { useFocusStore } from '../../src/store/focusStore';
 import { Card } from '../../src/components/Card';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
+import { SubjectSelector } from '../../src/components/SubjectSelector';
 import { Task } from '../../src/types';
 import { Plus, Check, Trash2, BookOpen, Star, Calendar as CalendarIcon, Play, X } from 'lucide-react-native';
 import { format, parseISO } from 'date-fns';
@@ -44,7 +45,7 @@ export default function PlannerScreen() {
   }, [user]);
 
   // Form setup
-  const { control, handleSubmit, reset, formState: { errors } } = useForm<TaskFormData>({
+  const { control, handleSubmit, reset, watch, formState: { errors } } = useForm<TaskFormData>({
     defaultValues: {
       subject: '',
       topic: '',
@@ -328,13 +329,10 @@ export default function PlannerScreen() {
                 control={control}
                 name="subject"
                 rules={{ required: 'Subject is required' }}
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <Input
-                    label="Subject / Course"
-                    placeholder="E.g., Operating Systems"
+                render={({ field: { onChange, value } }) => (
+                  <SubjectSelector
                     value={value}
-                    onChangeText={onChange}
-                    onBlur={onBlur}
+                    onChange={onChange}
                     error={errors.subject?.message}
                   />
                 )}
@@ -344,16 +342,58 @@ export default function PlannerScreen() {
                 control={control}
                 name="topic"
                 rules={{ required: 'Topic is required' }}
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <Input
-                    label="Topic / Target"
-                    placeholder="E.g., Banker's Algorithm"
-                    value={value}
-                    onChangeText={onChange}
-                    onBlur={onBlur}
-                    error={errors.topic?.message}
-                  />
-                )}
+                render={({ field: { onChange, onBlur, value } }) => {
+                  const selectedSubject = watch('subject');
+                  const existingTopics = Array.from(
+                    new Set(
+                      tasks
+                        .filter((t) => t.subject === selectedSubject)
+                        .map((t) => t.topic)
+                        .filter(Boolean)
+                    )
+                  );
+
+                  return (
+                    <View style={{ marginBottom: 16 }}>
+                      <Input
+                        label="Topic / Target"
+                        placeholder="E.g., Banker's Algorithm"
+                        value={value}
+                        onChangeText={onChange}
+                        onBlur={onBlur}
+                        error={errors.topic?.message}
+                      />
+                      {existingTopics.length > 0 && (
+                        <View style={{ marginTop: 8 }}>
+                          <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textSecondary, marginBottom: 6 }}>
+                            Or select an existing topic:
+                          </Text>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', gap: 6, paddingBottom: 4 }}>
+                            {existingTopics.map((top) => (
+                              <Pressable
+                                key={top}
+                                onPress={() => onChange(top)}
+                                style={{
+                                  paddingVertical: 6,
+                                  paddingHorizontal: 12,
+                                  borderRadius: 14,
+                                  borderWidth: 1.5,
+                                  borderColor: value === top ? colors.primary : colors.border,
+                                  backgroundColor: value === top ? colors.secondary : colors.card,
+                                  marginRight: 6,
+                                }}
+                              >
+                                <Text style={{ color: value === top ? colors.primary : colors.textPrimary, fontWeight: '700', fontSize: 11 }}>
+                                  {top}
+                                </Text>
+                              </Pressable>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      )}
+                    </View>
+                  );
+                }}
               />
 
               <Controller

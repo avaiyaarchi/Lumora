@@ -1,9 +1,8 @@
-import React from 'react';
 import { Tabs } from 'expo-router';
-import { StyleSheet, Platform } from 'react-native';
-import { useThemeStore } from '../../src/store/themeStore';
-import { Timer, Calendar, BarChart2, User2 } from 'lucide-react-native';
+import { BarChart2, Calendar, Timer, User2 } from 'lucide-react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { LumoraLogo } from '../../src/components/LumoraLogo';
+import { useThemeStore } from '../../src/store/themeStore';
 
 export default function TabLayout() {
   const colors = useThemeStore((state) => state.getColors());
@@ -13,7 +12,7 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: true,
         headerStyle: {
-          backgroundColor: colors.card,
+          backgroundColor: colors.background,
           borderBottomWidth: Platform.OS === 'ios' ? 0.5 : 1,
           borderBottomColor: colors.border,
           elevation: 0,
@@ -78,7 +77,6 @@ const styles = StyleSheet.create({
   tabBar: {
     height: Platform.OS === 'ios' ? 88 : 68,
     paddingTop: 10,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 12,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     position: 'absolute',

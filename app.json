@@ -7,19 +7,21 @@
     "icon": "./assets/images/lumora-icon-1024.png",
     "scheme": "lumora",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./assets/images/lumora-mark-transparent-1024.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FAF8FF"
-    },
     "ios": {
       "icon": "./assets/images/lumora-icon-1024.png"
     },
     "android": {
+      "package": "com.lumora.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#FAF8FF",
         "foregroundImage": "./assets/images/lumora-adaptive-icon-foreground.png"
       },
+      "permissions": [
+        "NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ],
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -35,11 +37,26 @@
           "image": "./assets/images/lumora-mark-transparent-1024.png",
           "imageWidth": 120
         }
-      ]
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/lumora-adaptive-icon-foreground.png",
+          "color": "#8B5CF6"
+        }
+      ],
+      "expo-image",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0e687f76-3d34-4278-809e-282f458e3019"
+      }
     }
   }
 }

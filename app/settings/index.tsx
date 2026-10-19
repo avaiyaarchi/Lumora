@@ -1,15 +1,15 @@
-import React, { useState } from 'react';
-import { StyleSheet, Text, View, ScrollView, Pressable, Platform, Alert, Switch } from 'react-native';
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { useThemeStore } from '../../src/store/themeStore';
+import { ArrowLeft, Bell, Brain, Clock, User } from 'lucide-react-native';
+import { useState } from 'react';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Button } from '../../src/components/Button';
+import { Card } from '../../src/components/Card';
+import { Input } from '../../src/components/Input';
+import { LumoraLogo } from '../../src/components/LumoraLogo';
 import { useAuthStore } from '../../src/store/authStore';
 import { useFocusStore } from '../../src/store/focusStore';
-import { Card } from '../../src/components/Card';
-import { Button } from '../../src/components/Button';
-import { Input } from '../../src/components/Input';
-import { ArrowLeft, Clock, Brain, Bell, Palette, User, LogOut, Trash2 } from 'lucide-react-native';
-import Constants from 'expo-constants';
-import { LumoraLogo } from '../../src/components/LumoraLogo';
+import { useThemeStore } from '../../src/store/themeStore';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -69,6 +69,14 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)' as any);
+    }
+  };
+
   const renderSectionHeader = (title: string, Icon: any) => (
     <View style={styles.sectionHeader}>
       <Icon size={18} color={colors.primary} style={{ marginRight: 8 }} />
@@ -80,7 +88,7 @@ export default function SettingsScreen() {
     <ScrollView contentContainerStyle={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header with Back button */}
       <View style={styles.headerRow}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={handleBack} style={styles.backBtn} hitSlop={8}>
           <ArrowLeft size={22} color={colors.textPrimary} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>Settings</Text>
@@ -140,7 +148,7 @@ export default function SettingsScreen() {
               thumbColor="#FFFFFF"
             />
           </View>
-          
+
           {waterReminderEnabled && (
             <View style={styles.settingsRowColumn}>
               <Text style={[styles.rowLabel, { color: colors.textPrimary, marginBottom: 8 }]}>Reminder Interval</Text>
@@ -337,11 +345,27 @@ export default function SettingsScreen() {
         </Card>
       </View>
 
-      {/* 5. About Lumora */}
-      <View style={[styles.section, { marginBottom: 40, alignItems: 'center' }]}>
-        <Card style={[styles.settingsCard, { width: '100%', alignItems: 'center', paddingVertical: 24 }]} bordered>
-          <LumoraLogo size={80} showWordmark />
-          <Text style={{ color: colors.textSecondary, marginTop: 8, fontSize: 13, fontWeight: '600' }}>
+      {/* 5. About Lumora Branding & Creator Footer */}
+      <View style={[styles.section, styles.footerSection]}>
+        <Card style={styles.footerCard} bordered>
+          {/* Main Brand with Sparkle Logo & Wordmark */}
+          <LumoraLogo size={40} showWordmark />
+
+          {/* Cozy tagline */}
+          <Text style={[styles.footerTagline, { color: colors.textSecondary }]}>
+            A little space to focus and grow.
+          </Text>
+
+          {/* Subtle divider */}
+          <View style={[styles.footerDivider, { backgroundColor: colors.border }]} />
+
+          {/* Subtle personal creator credit */}
+          <Text style={[styles.creatorCredit, { color: colors.textSecondary }]}>
+            Crafted with <Text style={[styles.heartIcon, { color: colors.primary }]}>♡</Text> by Aarchi
+          </Text>
+
+          {/* Clean version number */}
+          <Text style={[styles.versionText, { color: colors.textSecondary }]}>
             Version {Constants.expoConfig?.version || '1.0.0'}
           </Text>
         </Card>
@@ -439,5 +463,47 @@ const styles = StyleSheet.create({
   chipText: {
     fontSize: 12,
     fontWeight: '800',
+  },
+  footerSection: {
+    marginBottom: 36,
+    alignItems: 'center',
+  },
+  footerCard: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+  },
+  footerTagline: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 6,
+    textAlign: 'center',
+    letterSpacing: 0.15,
+  },
+  footerDivider: {
+    width: 60,
+    height: 1,
+    marginVertical: 12,
+    opacity: 0.65,
+  },
+  creatorCredit: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    letterSpacing: 0.2,
+  },
+  heartIcon: {
+    fontSize: 13,
+    fontWeight: '400',
+  },
+  versionText: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 4,
+    textAlign: 'center',
+    letterSpacing: 0.2,
+    opacity: 0.65,
   },
 });

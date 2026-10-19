@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Task } from '../types';
 import { getTasks, saveTask, deleteTask } from '../services/firebase/firestore';
+import { useSubjectStore } from './subjectStore';
 
 interface PlannerState {
   tasks: Task[];
@@ -22,6 +23,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     try {
       const list = await getTasks(userId);
       set({ tasks: list, loading: false });
+      // Sync any subjects from stored tasks into shared subject store
+      if (list && list.length > 0) {
+        useSubjectStore.getState().syncWithTasksAndSessions(list.map((t) => t.subject));
+      }
     } catch (err) {
       set({ loading: false });
     }
@@ -37,6 +42,11 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     // Optimistic UI update
     const currentTasks = get().tasks;
     set({ tasks: [newTask, ...currentTasks] });
+
+    // Sync task subject with subject store
+    if (taskData.subject) {
+      useSubjectStore.getState().syncWithTasksAndSessions([taskData.subject]);
+    }
 
     try {
       await saveTask(newTask);
@@ -84,7 +94,14 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     if (taskIndex === -1) return;
 
     const task = currentTasks[taskIndex];
-    const updatedTask = { ...task, actualSessions: task.actualSessions + 1 };
+    const newActual = task.actualSessions + 1;
+    const isCompleted = newActual >= task.estimatedSessions;
+
+    const updatedTask = { 
+      ...task, 
+      actualSessions: newActual,
+      completed: isCompleted ? true : task.completed
+    };
 
     const updatedTasks = [...currentTasks];
     updatedTasks[taskIndex] = updatedTask;

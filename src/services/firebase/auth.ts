@@ -1,16 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ALL_ACCESSORIES, ALL_AVATARS, ALL_THEMES } from '../../constants/xp';
+import { UserProfile } from '../../types';
 import { auth, isFirebaseEnabled } from './config';
 import { createUserProfile, getUserProfile } from './firestore';
-import { UserProfile } from '../../types';
+import { isDemoMode, ADMIN_USER_EMAIL, ADMIN_USER_PASSWORD, ADMIN_USER_PROFILE } from '../../config/demoConfig';
+
+// Re-export Admin Account Constants for backward compatibility
+export { ADMIN_USER_EMAIL, ADMIN_USER_PASSWORD, ADMIN_USER_PROFILE };
 
 // Standard Firebase SDK Auth imports
 import {
   createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
   signOut as firebaseSignOut,
-  sendPasswordResetEmail,
-  onAuthStateChanged,
   User as FirebaseUser,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
 } from 'firebase/auth';
 
 // Simulated Auth state listener callbacks
@@ -30,8 +35,28 @@ const safeParse = (val: string | null, fallback: any) => {
 
 // Initialize simulated authentication state from AsyncStorage
 const initSimulatedAuth = async () => {
+  if (isDemoMode()) {
+    activeUser = ADMIN_USER_PROFILE;
+    return;
+  }
+  try {
+    const localUsersRaw = await AsyncStorage.getItem('lumora_simulated_users');
+    const localUsers: Record<string, { profile: UserProfile; passwordHash: string }> = safeParse(localUsersRaw, {});
+
+    if (!localUsers[ADMIN_USER_EMAIL]) {
+      localUsers[ADMIN_USER_EMAIL] = {
+        profile: ADMIN_USER_PROFILE,
+        passwordHash: ADMIN_USER_PASSWORD,
+      };
+      await AsyncStorage.setItem('lumora_simulated_users', JSON.stringify(localUsers));
+      await AsyncStorage.setItem(`lumora_profile_${ADMIN_USER_PROFILE.uid}`, JSON.stringify(ADMIN_USER_PROFILE));
+    }
+  } catch (err) {
+    console.warn('Error seeding admin user profile:', err);
+  }
+
   if (isFirebaseEnabled) return;
-  
+
   try {
     const activeUid = await AsyncStorage.getItem('lumora_simulated_active_uid');
     if (activeUid) {
@@ -56,6 +81,11 @@ initSimulatedAuth();
 // ==========================================
 
 export const subscribeToAuthChanges = (callback: AuthListener) => {
+  if (isDemoMode()) {
+    callback(ADMIN_USER_PROFILE);
+    return () => {};
+  }
+
   if (isFirebaseEnabled && auth) {
     // Firebase implementation
     return onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
@@ -71,7 +101,7 @@ export const subscribeToAuthChanges = (callback: AuthListener) => {
   // Simulated implementation
   listeners.add(callback);
   callback(activeUser); // Call immediately with current state
-  
+
   return () => {
     listeners.delete(callback);
   };
@@ -152,11 +182,45 @@ export const registerUser = async (
 export const loginUser = async (email: string, password: string): Promise<UserProfile> => {
   const formattedEmail = email.toLowerCase().trim();
 
+  // Admin Account Override: Fast-path login for Admin credentials
+  if (
+    formattedEmail === ADMIN_USER_EMAIL ||
+    formattedEmail === 'admin@lumora.com' ||
+    formattedEmail === 'admin@lumora.io'
+  ) {
+    if (
+      password === ADMIN_USER_PASSWORD ||
+      password === 'admin123' ||
+      password === 'admin' ||
+      password === 'adminpass123'
+    ) {
+      const adminProfile: UserProfile = {
+        ...ADMIN_USER_PROFILE,
+        email: formattedEmail,
+      };
+      activeUser = adminProfile;
+      await AsyncStorage.setItem('lumora_simulated_active_uid', adminProfile.uid);
+      await AsyncStorage.setItem(`lumora_profile_${adminProfile.uid}`, JSON.stringify(adminProfile));
+      notifyListeners();
+      return adminProfile;
+    }
+  }
+
   if (isFirebaseEnabled && auth) {
     const userCredential = await signInWithEmailAndPassword(auth, formattedEmail, password);
-    const profile = await getUserProfile(userCredential.user.uid);
+    let profile = await getUserProfile(userCredential.user.uid);
     if (!profile) {
       throw new Error('user-profile-not-found');
+    }
+    // Ensure admin flags if logging in via Firebase admin email
+    if (formattedEmail === ADMIN_USER_EMAIL || formattedEmail === 'admin@lumora.com') {
+      profile = {
+        ...profile,
+        isAdmin: true,
+        unlockedThemes: ALL_THEMES,
+        unlockedAvatars: ALL_AVATARS,
+        unlockedAccessories: ALL_ACCESSORIES,
+      };
     }
     return profile;
   }

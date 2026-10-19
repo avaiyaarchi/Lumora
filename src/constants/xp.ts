@@ -9,6 +9,41 @@ export const XP_VALUES = {
   SEVEN_DAY_STREAK: 100,
 };
 
+export const ALL_THEMES: ThemeName[] = [
+  'lavender',
+  'pink',
+  'cream',
+  'sky',
+  'sage',
+  'galaxy',
+  'ocean',
+  'peach',
+  'cherryBlossom',
+  'milktea',
+  'matcha',
+  'sunset',
+  'moonlight',
+  'frost',
+];
+
+export const ALL_AVATARS: AvatarType[] = [
+  'cat',
+  'rabbit',
+  'fox',
+  'panda',
+  'penguin',
+  'sloth',
+];
+
+export const ALL_ACCESSORIES: AccessoryType[] = [
+  'books',
+  'headphones',
+  'coffee',
+  'scarf',
+  'flower',
+  'glasses',
+];
+
 // Calculate total cumulative XP required to reach a specific level
 // Level 1: 0 XP
 // Level 2: 200 XP

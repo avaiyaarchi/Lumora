@@ -32,6 +32,9 @@ export const Input = forwardRef<TextInput, InputProps>(
                 ? colors.primary
                 : colors.border,
               borderWidth: 2,
+              height: rest.multiline ? undefined : 54,
+              minHeight: 54,
+              paddingVertical: rest.multiline ? 12 : 0,
             },
           ]}
         >
@@ -43,6 +46,7 @@ export const Input = forwardRef<TextInput, InputProps>(
               styles.input,
               {
                 color: colors.textPrimary,
+                textAlignVertical: rest.multiline ? 'top' : 'center',
               },
               inputStyle,
             ]}

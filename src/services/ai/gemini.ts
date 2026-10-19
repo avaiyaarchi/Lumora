@@ -1,172 +1,25 @@
-import { GoogleGenerativeAI, Schema, SchemaType } from '@google/generative-ai';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { QuizQuestion } from '../../types';
 
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-console.log("Gemini Key Loaded:", !!GEMINI_API_KEY);
-console.log("Key Prefix:", GEMINI_API_KEY?.substring(0, 8));
-console.log("Gemini Key:", GEMINI_API_KEY);
-console.log("Starts with AIza/AQ:", GEMINI_API_KEY?.startsWith("AIza") || GEMINI_API_KEY?.startsWith("AQ"));
 
 // Initialize Gemini client if API key is provided
 let genAI: GoogleGenerativeAI | null = null;
 if (GEMINI_API_KEY && GEMINI_API_KEY !== 'mock-key') {
   try {
     genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    console.log('Gemini API initialized successfully.');
   } catch (error) {
     console.warn('Gemini API client initialization failed, using mock AI mode:', error);
   }
-} else {
-  console.log('No EXPO_PUBLIC_GEMINI_API_KEY found. Lumora is running in Mock AI Mode.');
 }
 
 // ==========================================
-// MOCK AI GENERATOR FALLBACKS
+// MODEL CONFIGURATION: Exactly 1 Primary, 1 Verified Fallback
 // ==========================================
-
-const generateMockQuiz = (
-  subject: string,
-  topic: string,
-  count: number = 5,
-  difficulty: string = 'medium'
-): QuizQuestion[] => {
-  const cleanSubject = subject.trim() || 'General Studies';
-  const cleanTopic = topic.trim() || 'Core concepts';
-
-  // Split topics by comma and trim
-  const topicsList = cleanTopic.split(',').map((t) => t.trim()).filter((t) => t.length > 0);
-  const activeTopics = topicsList.length > 0 ? topicsList : ['Core concepts'];
-
-  const mockTemplates: Record<string, { q: string; o: string[]; c: number; e: string }[]> = {
-    'deadlocks': [
-      {
-        q: 'Which of the following is NOT one of the four necessary conditions for a deadlock to occur?',
-        o: ['Mutual Exclusion', 'Hold and Wait', 'Preemption', 'Circular Wait'],
-        c: 2,
-        e: 'Preemption is not a condition for deadlock; in fact, allowing preemption is a way to resolve deadlocks. The four necessary conditions are Mutual Exclusion, Hold and Wait, No Preemption, and Circular Wait.',
-      },
-      {
-        q: 'What is the primary purpose of the Banker\'s Algorithm in operating systems?',
-        o: ['Deadlock Detection', 'Deadlock Avoidance', 'Deadlock Recovery', 'Mutual Exclusion Enforcement'],
-        c: 1,
-        e: 'The Banker\'s Algorithm is a classic deadlock avoidance algorithm that checks if allocating resources keeps the system in a safe state.',
-      },
-      {
-        q: 'In a resource allocation graph, what does a directed cycle usually indicate?',
-        o: ['A system crash', 'An infinite loop', 'A possible deadlock state', 'Excellent resource utilization'],
-        c: 2,
-        e: 'In a resource allocation graph with single-unit resource types, a cycle indicates a deadlock. If there are multiple resource units, it only implies a potential deadlock.',
-      },
-    ],
-    'scheduling': [
-      {
-        q: 'Which scheduling algorithm is non-preemptive and selects the process with the shortest CPU burst time?',
-        o: ['Round Robin', 'Shortest Job First (SJF)', 'First-Come, First-Served (FCFS)', 'Priority Scheduling'],
-        c: 1,
-        e: 'Shortest Job First (SJF) is a scheduling policy that selects the waiting process with the smallest execution time.',
-      },
-      {
-        q: 'What is the primary drawback of the First-Come, First-Served (FCFS) scheduling algorithm?',
-        o: ['High CPU overhead', 'Convoy Effect', 'Starvation of short processes', 'Complex implementation'],
-        c: 1,
-        e: 'The Convoy Effect occurs when smaller processes wait for a long process to release the CPU, leading to poor device utilization.',
-      },
-    ],
-    'synchronization': [
-      {
-        q: 'What is a critical section in concurrent programming?',
-        o: ['A part of code that executes slowly', 'A code block accessing shared resources that must not be concurrently accessed by multiple threads', 'A system validation layer', 'A hardware lock'],
-        c: 1,
-        e: 'A critical section is a code segment that accesses shared variables and must be executed atomically to prevent race conditions.',
-      },
-      {
-        q: 'Which mechanism is a synchronization tool that does not require busy waiting?',
-        o: ['Spinlock', 'Semaphore with a waiting queue', 'Strict alternation', 'Peterson\'s solution'],
-        c: 1,
-        e: 'Semaphores implemented with a wait queue block the process and put it in a waiting queue, avoiding CPU-wasting spinlocks (busy waiting).',
-      },
-    ],
-    'database systems': [
-      {
-        q: 'Which normal form is concerned with eliminating transitive dependencies?',
-        o: ['First Normal Form (1NF)', 'Second Normal Form (2NF)', 'Third Normal Form (3NF)', 'Boyce-Codd Normal Form (BCNF)'],
-        c: 2,
-        e: 'Third Normal Form (3NF) requires the relation to be in 2NF and that no non-prime attribute is transitively dependent on the primary key.',
-      },
-      {
-        q: 'What does the "I" represent in ACID properties of transactions?',
-        o: ['Inheritance', 'Isolation', 'Integrity', 'Indexation'],
-        c: 1,
-        e: 'Isolation ensures that concurrent execution of transactions leaves the database in the same state as if transactions were executed sequentially.',
-      },
-      {
-        q: 'Which database index structure is commonly used for range queries?',
-        o: ['Hash Map', 'B+ Tree', 'Linked List', 'Binary Search Tree'],
-        c: 1,
-        e: 'B+ Trees maintain sorted data, which makes searching, sequential access, and range queries highly efficient in database systems.',
-      },
-    ],
-  };
-
-  const questionsList: QuizQuestion[] = [];
-  const questionsPerTopic = Math.max(1, Math.ceil(count / activeTopics.length));
-
-  activeTopics.forEach((topicName) => {
-    const topicKey = topicName.toLowerCase();
-    let templateList = mockTemplates[topicKey] || null;
-
-    if (!templateList) {
-      const matchedKey = Object.keys(mockTemplates).find((k) => topicKey.includes(k) || k.includes(topicKey));
-      if (matchedKey) {
-        templateList = mockTemplates[matchedKey];
-      }
-    }
-
-    if (templateList) {
-      const shuffled = [...templateList].sort(() => 0.5 - Math.random());
-      const selected = shuffled.slice(0, questionsPerTopic);
-      selected.forEach((item) => {
-        const correctIdx = Math.floor(Math.random() * 4);
-        const newOptions = [...item.o];
-        const originalCorrect = newOptions[item.c];
-        newOptions[item.c] = newOptions[correctIdx];
-        newOptions[correctIdx] = originalCorrect;
-
-        questionsList.push({
-          question: item.q,
-          options: newOptions,
-          correctAnswerIndex: correctIdx,
-          explanation: item.e.replace(
-            'correct answer',
-            `correct answer at option ${['A', 'B', 'C', 'D'][correctIdx]}`
-          ),
-        });
-      });
-    } else {
-      // Dynamic fallback for unrecognized mock topic
-      for (let i = 0; i < questionsPerTopic; i++) {
-        questionsList.push({
-          question: `Regarding "${topicName}" within ${cleanSubject}, which option best explains its core concept?`,
-          options: [
-            `The primary definition or mechanism associated with ${topicName}.`,
-            `An alternative distractor choice related to ${cleanSubject}.`,
-            `An irrelevant concept from another area of computer science.`,
-            `A basic description that doesn't accurately cover ${topicName}.`,
-          ],
-          correctAnswerIndex: 0,
-          explanation: `This is a mock question generated dynamically for the topic "${topicName}" under "${cleanSubject}".`,
-        });
-      }
-    }
-  });
-
-  // Randomize questions across the selected topics rather than focusing on only one
-  return questionsList.sort(() => 0.5 - Math.random()).slice(0, count);
-};
-
-// ==========================================
-// PUBLIC AI SERVICE APIS
-// ==========================================
+// Both models verified against the active Google Generative AI API version.
+export const PRIMARY_MODEL = 'gemini-3-flash-preview';
+export const FALLBACK_MODEL = 'gemini-3.1-flash-lite';
 
 export class GeminiError extends Error {
   status?: number;
@@ -188,25 +41,15 @@ export class GeminiError extends Error {
   }
 }
 
-// In-memory set of models that have permanently failed (e.g., 404) to avoid repeated retries
-const disabledModels = new Set<string>();
-
-// Preferred models to check in priority order
-const PREFERRED_MODELS = [
-  'gemini-3.5-flash',
-  'gemini-3.6-flash',
-  'gemini-3.5-flash-lite'
-];
-
 /**
  * Categorizes raw API and SDK errors into structured GeminiError objects.
  */
-const categorizeGeminiError = (error: any, modelName?: string): GeminiError => {
+export const categorizeGeminiError = (error: any, modelName?: string): GeminiError => {
   const status = error?.status;
   const message = error?.message || '';
   const errorDetailsString = JSON.stringify(error?.errorDetails || error || '');
 
-  // 1. Invalid API Key (Status 400/401/403 with key-related message, or reason: "API_KEY_INVALID")
+  // 1. Invalid API Key
   if (
     (status === 400 && (message.includes('API key not valid') || errorDetailsString.includes('API_KEY_INVALID'))) ||
     status === 401 ||
@@ -220,7 +63,7 @@ const categorizeGeminiError = (error: any, modelName?: string): GeminiError => {
     );
   }
 
-  // 2. Quota Exceeded (Status 429 or messages/reasons including Resource Exhausted / Quota exceeded / rate limit)
+  // 2. Quota Exceeded (Status 429)
   if (
     status === 429 ||
     message.includes('429') ||
@@ -235,51 +78,122 @@ const categorizeGeminiError = (error: any, modelName?: string): GeminiError => {
     );
   }
 
-  // 3. Model Unavailable / Deprecated (Status 404 or message indicating model no longer available / not found)
+  // 3. Service Unavailable / High Demand (Status 503)
+  if (
+    status === 503 ||
+    message.includes('503') ||
+    message.includes('high demand') ||
+    message.includes('Service Unavailable')
+  ) {
+    return new GeminiError(
+      'MODEL_UNAVAILABLE',
+      'Gemini AI is currently experiencing high demand (503). Retrying with fallback or sample quiz.',
+      true,
+      503
+    );
+  }
+
+  // 4. Model Deprecated / Not Found (Status 404)
   if (
     status === 404 ||
     message.includes('404') ||
     message.includes('not found') ||
-    message.includes('no longer available') ||
-    message.includes('not supported')
+    message.includes('no longer available')
   ) {
-    const modelInfo = modelName ? ` (${modelName})` : '';
     return new GeminiError(
       'MODEL_UNAVAILABLE',
-      `The selected AI model${modelInfo} is unavailable or has been deprecated.`,
-      true, // Retryable (we can try another model in the list)
-      status
+      `The model ${modelName || ''} is unavailable.`,
+      true,
+      404
     );
   }
 
-  // 4. Network Error (e.g. Failed to fetch, DNS issue, network connection timeout)
+  // 5. Network / Timeout Error
   if (
+    status === 408 ||
     message.includes('fetch') ||
     message.includes('network') ||
-    message.includes('connect') ||
     message.includes('timeout') ||
+    message.includes('aborted') ||
     error instanceof TypeError
   ) {
     return new GeminiError(
       'NETWORK_ERROR',
-      'Network connection issue. Please check your internet connection and try again.',
-      true, // Retryable
-      status
+      'Network timeout connecting to Gemini. Please check your internet connection.',
+      true,
+      status || 408
     );
   }
 
-  // 5. Unknown/Other
   return new GeminiError(
     'UNKNOWN_ERROR',
-    message || 'An unexpected error occurred while generating AI content.',
+    message || 'An unexpected error occurred while communicating with the AI service.',
     true,
     status
   );
 };
 
-/**
- * Helper to strip markdown formatting and clean dynamic JSON output before parsing.
- */
+// ==========================================
+// QUIZ CACHING & IN-FLIGHT DEDUPLICATION
+// ==========================================
+interface CachedQuiz {
+  questions: QuizQuestion[];
+  timestamp: number;
+}
+
+const quizMemoryCache = new Map<string, CachedQuiz>();
+const inFlightQuizzes = new Map<string, Promise<QuizQuestion[]>>();
+
+export const getQuizCacheKey = (
+  subject: string,
+  topic: string,
+  count: number = 5,
+  difficulty: string = 'medium',
+  notes?: string
+): string => {
+  const cleanSubject = (subject || '').trim().toLowerCase();
+  const cleanTopic = (topic || '').trim().toLowerCase();
+  const cleanNotes = (notes || '').trim().slice(0, 80).toLowerCase();
+  return `${cleanSubject}::${cleanTopic}::${difficulty}::${count}::${cleanNotes}`;
+};
+
+export const getCachedQuiz = async (cacheKey: string): Promise<QuizQuestion[] | null> => {
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+  // 1. In-memory check (0ms)
+  const mem = quizMemoryCache.get(cacheKey);
+  if (mem && Date.now() - mem.timestamp < ONE_DAY_MS) {
+    return mem.questions;
+  }
+
+  // 2. Persistent storage check
+  try {
+    const raw = await AsyncStorage.getItem(`lumora_qc_${cacheKey}`);
+    if (raw) {
+      const parsed: CachedQuiz = JSON.parse(raw);
+      if (Date.now() - parsed.timestamp < ONE_DAY_MS && Array.isArray(parsed.questions)) {
+        quizMemoryCache.set(cacheKey, parsed);
+        return parsed.questions;
+      }
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return null;
+};
+
+export const setCachedQuiz = async (cacheKey: string, questions: QuizQuestion[]): Promise<void> => {
+  const entry: CachedQuiz = { questions, timestamp: Date.now() };
+  quizMemoryCache.set(cacheKey, entry);
+  try {
+    await AsyncStorage.setItem(`lumora_qc_${cacheKey}`, JSON.stringify(entry));
+  } catch {
+    // Ignore storage errors
+  }
+};
+
+// ==========================================
+// OPTIMIZED GENERATION WITH TIMEOUT & FALLBACK
+// ==========================================
 const cleanJsonString = (str: string): string => {
   let cleaned = str.trim();
   if (cleaned.startsWith('```')) {
@@ -291,76 +205,221 @@ const cleanJsonString = (str: string): string => {
   return cleaned.trim();
 };
 
-/**
- * Generates content using a list of model fallbacks in case of regional restrictions or deprecations.
- */
-const generateWithFallback = async (
+interface GenerateOptions {
+  maxOutputTokens?: number;
+  temperature?: number;
+  timeoutMs?: number;
+}
+
+const generateFromModelWithTimeout = async (
+  modelName: string,
   prompt: string,
-  responseMimeType?: string,
-  responseSchema?: Schema
+  options?: GenerateOptions
 ): Promise<string> => {
-  if (!genAI) throw new Error('Gemini API client not initialized');
+  const timeoutMs = options?.timeoutMs || (modelName === PRIMARY_MODEL ? 9000 : 12000);
 
-  // Filter out models that are permanently disabled
-  const modelsToTry = PREFERRED_MODELS.filter(m => !disabledModels.has(m));
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      reject(new GeminiError('NETWORK_ERROR', `Request to ${modelName} timed out after ${timeoutMs}ms.`, true, 408));
+    }, timeoutMs);
+  });
 
-  if (modelsToTry.length === 0) {
-    throw new GeminiError(
-      'MODEL_UNAVAILABLE',
-      'All configured Gemini AI models are currently unavailable.',
-      false
-    );
-  }
+  const model = genAI!.getGenerativeModel({
+    model: modelName,
+    generationConfig: {
+      responseMimeType: 'application/json',
+      maxOutputTokens: options?.maxOutputTokens || 1200,
+      temperature: options?.temperature ?? 0.2,
+      // Disable thinking tokens to eliminate latency overhead
+      thinkingConfig: { thinkingBudget: 0 },
+    } as any,
+  });
 
-  let lastError: GeminiError | null = null;
+  const apiPromise = model.generateContent(prompt).then((res) => {
+    const text = res.response.text();
+    if (!text) throw new Error('Empty response from model');
+    return text;
+  });
 
-  for (const modelName of modelsToTry) {
-    try {
-      console.log(`Attempting content generation with model: ${modelName}`);
-      const model = genAI.getGenerativeModel({
-        model: modelName,
-        generationConfig: responseMimeType ? { 
-          responseMimeType,
-          responseSchema
-        } : undefined,
-      });
-      console.log("Trying model:", modelName);
-      const result = await model.generateContent(prompt);
-      const text = result.response.text();
-      if (text) {
-        console.log(`Successfully generated content using model: ${modelName}`);
-        return text;
-      }
-    } catch (rawError: any) {
-      const categorized = categorizeGeminiError(rawError, modelName);
-      console.log("====================");
-      console.log("Model:", modelName);
-      console.log("Error Type:", categorized.type);
-      console.log("Error Message:", categorized.message);
-      console.log("====================");
-
-      // Cache 404 / unavailable models so we don't try them next time
-      if (categorized.type === 'MODEL_UNAVAILABLE') {
-        disabledModels.add(modelName);
-        console.log(`Disabled model permanently for this session: ${modelName}`);
-      }
-
-      // If it's a non-retryable error (invalid key, quota exceeded, etc.), throw it immediately
-      if (!categorized.isRetryable) {
-        throw categorized;
-      }
-
-      lastError = categorized;
-      continue;
-    }
-  }
-
-  throw lastError || new GeminiError('UNKNOWN_ERROR', 'All model fallbacks failed', false);
+  return Promise.race([apiPromise, timeoutPromise]);
 };
 
 /**
- * Generates MCQs from study subject, topic, and notes or documents
+ * Attempts primary model first; if it fails (503, timeout, etc.), switches immediately
+ * to the single verified fallback model.
  */
+export const generateWithFallback = async (
+  prompt: string,
+  options?: GenerateOptions
+): Promise<{ text: string; modelUsed: string; duration: number; retries: number }> => {
+  if (!genAI) throw new Error('Gemini API client not initialized');
+
+  const models = [PRIMARY_MODEL, FALLBACK_MODEL];
+  let lastError: GeminiError | null = null;
+  let retries = 0;
+
+  for (let i = 0; i < models.length; i++) {
+    const modelName = models[i];
+    const isFallback = i > 0;
+    const t0 = Date.now();
+
+    try {
+      if (isFallback) {
+        retries++;
+        console.warn(`[AI Fallback] Primary model failed, switching to verified fallback: ${modelName}`);
+      }
+      const text = await generateFromModelWithTimeout(modelName, prompt, options);
+      const duration = Date.now() - t0;
+      console.log(`[AI Generation] ${modelName} succeeded in ${duration}ms (retries: ${retries})`);
+      return { text, modelUsed: modelName, duration, retries };
+    } catch (raw: any) {
+      const duration = Date.now() - t0;
+      const categorized = categorizeGeminiError(raw, modelName);
+      console.warn(`[AI Attempt Failed] ${modelName} failed after ${duration}ms: [${categorized.type}] ${categorized.message}`);
+
+      // If API key is fundamentally invalid, do not retry fallback
+      if (categorized.type === 'INVALID_API_KEY') {
+        throw categorized;
+      }
+      lastError = categorized;
+    }
+  }
+
+  throw lastError || new GeminiError('UNKNOWN_ERROR', 'All model attempts failed', false);
+};
+
+// ==========================================
+// BUILT-IN SAMPLE / DEMO QUIZ QUESTIONS
+// ==========================================
+const SAMPLE_TEMPLATES: Record<string, { q: string; o: string[]; c: number; e: string }[]> = {
+  deadlocks: [
+    {
+      q: 'Which of the following is NOT one of the four necessary Coffman conditions for a deadlock?',
+      o: ['Mutual Exclusion', 'Hold and Wait', 'Preemption Allowed', 'Circular Wait'],
+      c: 2,
+      e: 'Allowing preemption prevents deadlocks; the condition is "No Preemption".',
+    },
+    {
+      q: 'What is the primary objective of Dijkstra\'s Banker\'s Algorithm in Operating Systems?',
+      o: ['Deadlock Detection', 'Deadlock Avoidance', 'Deadlock Recovery', 'Mutual Exclusion'],
+      c: 1,
+      e: 'The Banker\'s Algorithm dynamically inspects resource requests to maintain a safe state (Deadlock Avoidance).',
+    },
+    {
+      q: 'In a resource allocation graph with single-unit resource types, what does a directed cycle indicate?',
+      o: ['High CPU utilization', 'A system crash', 'A guaranteed deadlock', 'A thread starvation warning'],
+      c: 2,
+      e: 'With single-unit resources, a cycle is necessary and sufficient to indicate a deadlock.',
+    },
+    {
+      q: 'Which deadlock handling strategy requires processes to request all resources at once?',
+      o: ['Circular Wait Prevention', 'Hold and Wait Prevention', 'Mutual Exclusion Elimination', 'Starvation Prevention'],
+      c: 1,
+      e: 'Requesting all resources at once prevents the "Hold and Wait" condition.',
+    },
+    {
+      q: 'What is the primary difference between deadlock prevention and deadlock avoidance?',
+      o: ['Avoidance imposes static ordering; prevention evaluates runtime safe states', 'Prevention restricts resource requests statically; avoidance tracks dynamic safe states', 'Prevention requires rollback; avoidance does not', 'They are identical concepts'],
+      c: 1,
+      e: 'Prevention invalidates one of the four necessary conditions statically, whereas avoidance checks dynamic safety states at runtime.',
+    },
+  ],
+  scheduling: [
+    {
+      q: 'Which CPU scheduling algorithm is non-preemptive and selects the process with the shortest execution burst?',
+      o: ['Round Robin', 'Shortest Job First (SJF)', 'First-Come, First-Served (FCFS)', 'Multilevel Queue'],
+      c: 1,
+      e: 'SJF schedules the process with the minimum CPU burst time.',
+    },
+    {
+      q: 'What major drawback does First-Come, First-Served (FCFS) CPU scheduling suffer from?',
+      o: ['Priority Inversion', 'Convoy Effect', 'Deadlock cycles', 'High context switch overhead'],
+      c: 1,
+      e: 'The Convoy Effect occurs when short processes queue behind a long CPU-bound process.',
+    },
+    {
+      q: 'In Round Robin scheduling, what happens if the time quantum is chosen to be extremely large?',
+      o: ['It degenerates into Shortest Job First', 'It behaves like First-Come, First-Served', 'Context switches increase exponentially', 'Processes starve indefinitely'],
+      c: 1,
+      e: 'An excessively large time quantum allows each process to run to completion, matching FCFS behavior.',
+    },
+  ],
+  synchronization: [
+    {
+      q: 'What is a critical section in concurrent computing?',
+      o: ['Code executing in kernel mode', 'A code block accessing shared variables that must execute atomically', 'A thread synchronization lock', 'An interrupt handler routine'],
+      c: 1,
+      e: 'Critical sections manipulate shared resources and require mutual exclusion to prevent race conditions.',
+    },
+    {
+      q: 'Which synchronization primitive avoids busy-waiting by suspending waiting processes in a sleep queue?',
+      o: ['Spinlock', 'Counting Semaphore with wait queue', 'Strict Alternation', 'Peterson\'s Algorithm'],
+      c: 1,
+      e: 'Semaphores with block/wakeup queues sleep processes rather than wasting CPU cycles in a spin loop.',
+    },
+  ],
+  database: [
+    {
+      q: 'Which relational database normal form eliminates transitive dependencies on the primary key?',
+      o: ['1NF', '2NF', '3NF', 'BCNF'],
+      c: 2,
+      e: 'Third Normal Form (3NF) requires 2NF and ensures no non-key attribute depends transitively on the primary key.',
+    },
+    {
+      q: 'What does the "I" represent in the ACID properties of database transactions?',
+      o: ['Integrity', 'Isolation', 'Inheritance', 'Indexing'],
+      c: 1,
+      e: 'Isolation ensures concurrent transactions execute without interfering with one another.',
+    },
+  ],
+  algorithms: [
+    {
+      q: 'What is the worst-case time complexity of finding an element in a balanced Binary Search Tree (AVL / Red-Black)?',
+      o: ['O(1)', 'O(log n)', 'O(n)', 'O(n log n)'],
+      c: 1,
+      e: 'Balanced BSTs maintain height proportional to log n, giving O(log n) worst-case search time.',
+    },
+    {
+      q: 'Which algorithmic paradigm does Dijkstra\'s Shortest Path Algorithm use?',
+      o: ['Divide and Conquer', 'Greedy', 'Dynamic Programming', 'Backtracking'],
+      c: 1,
+      e: 'Dijkstra greedily chooses the unvisited node with the smallest tentative distance at each step.',
+    },
+  ],
+};
+
+export const hasSampleQuizForTopic = (subject: string, topic: string): boolean => {
+  const combined = `${subject} ${topic}`.toLowerCase();
+  return Object.keys(SAMPLE_TEMPLATES).some((k) => combined.includes(k));
+};
+
+export const getSampleQuiz = (
+  subject: string,
+  topic: string,
+  count: number = 5,
+  difficulty: string = 'medium'
+): QuizQuestion[] => {
+  const cleanSubject = subject.trim() || 'Computer Science';
+  const cleanTopic = topic.trim() || 'Core Concepts';
+  const combined = `${cleanSubject} ${cleanTopic}`.toLowerCase();
+
+  const matchedKey = Object.keys(SAMPLE_TEMPLATES).find((k) => combined.includes(k)) || 'deadlocks';
+  const templates = SAMPLE_TEMPLATES[matchedKey] || SAMPLE_TEMPLATES.deadlocks;
+
+  const shuffled = [...templates].sort(() => 0.5 - Math.random());
+  const selected = shuffled.slice(0, Math.min(count, templates.length));
+
+  return selected.map((item) => ({
+    question: item.q,
+    options: item.o,
+    correctAnswerIndex: item.c,
+    explanation: item.e,
+  }));
+};
+
+// ==========================================
+// PUBLIC: GENERATE QUIZ
+// ==========================================
 export const generateQuiz = async (
   subject: string,
   topic: string,
@@ -369,152 +428,101 @@ export const generateQuiz = async (
   count: number = 5,
   difficulty: 'easy' | 'medium' | 'hard' | 'adaptive' = 'medium'
 ): Promise<QuizQuestion[]> => {
-  // If Gemini client is not initialized, run mock generation instantly
+  const cleanSubject = (subject || '').trim() || 'General Studies';
+  const cleanTopic = (topic || '').trim() || 'Core Concepts';
+  const cacheKey = getQuizCacheKey(cleanSubject, cleanTopic, count, difficulty, notes);
+
+  // 1. Check Cache
+  const cached = await getCachedQuiz(cacheKey);
+  if (cached && cached.length >= count) {
+    console.log(`[Quiz Performance] Cache HIT for "${cleanSubject} - ${cleanTopic}" (0ms)`);
+    return cached.slice(0, count);
+  }
+
+  // 2. In-flight request deduplication
+  if (inFlightQuizzes.has(cacheKey)) {
+    console.log(`[Quiz Performance] In-flight request reuse for "${cleanSubject} - ${cleanTopic}"`);
+    return inFlightQuizzes.get(cacheKey)!;
+  }
+
+  // 3. If Gemini is not configured, return sample quiz immediately
   if (!genAI) {
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    return generateMockQuiz(subject, topic, count, difficulty);
+    console.log('[Quiz] No Gemini API key configured. Loading sample demo quiz.');
+    const sample = getSampleQuiz(cleanSubject, cleanTopic, count, difficulty);
+    return sample;
   }
 
-  // Split and clean topics
-  const topicsList = topic.split(',').map((t) => t.trim()).filter((t) => t.length > 0);
-  const activeTopics = topicsList.length > 0 ? topicsList : ['Core concepts'];
+  // 4. Construct AI Generation Promise
+  const generationPromise = (async () => {
+    const totalStart = Date.now();
+    const hasUploadedNotes = Boolean(notes && notes.trim().length > 0);
+    const trimmedNotes = hasUploadedNotes ? notes!.trim().slice(0, 2500) : '';
 
-  try {
-    // Implement priority rules:
-    // Priority 1: Ground questions in uploaded study material (notes)
-    // Priority 2: Use Subject + Topic general knowledge if no uploaded study material
-    const hasUploadedMaterial = notes && notes.trim().length > 0;
+    const prompt = `Generate exactly ${count} multiple-choice questions.
+Subject: "${cleanSubject}"
+Topic: "${cleanTopic}"
+Difficulty: ${difficulty}
+${hasUploadedNotes ? `Source Material:\n"""\n${trimmedNotes}\n"""` : ''}
 
-    let groundingInstructions = '';
-    if (hasUploadedMaterial) {
-      groundingInstructions = `
-        PRIMARY SOURCE GOUNDING (Priority 1): Focus exclusively on the uploaded study material provided below. 
-        Analyze the text content and generate questions ONLY from the facts, concepts, and materials described within.
-        Verify that the questions align with the requested topic(s): ${activeTopics.join(', ')}.
-        
-        [Uploaded Study Material Content]
-        """
-        ${notes}
-        """
-      `;
-    } else {
-      groundingInstructions = `
-        PRIMARY SOURCE GROUNDING (Priority 2): No uploaded study material was provided. 
-        Generate highly accurate and educational questions using your general academic knowledge based on:
-        Subject: ${subject}
-        Topic(s): ${activeTopics.join(', ')}
-      `;
-    }
+Respond ONLY with a valid JSON array of ${count} objects matching this exact structure:
+[
+  {
+    "question": "string",
+    "options": ["string", "string", "string", "string"],
+    "correctAnswerIndex": 0,
+    "explanation": "concise explanation under 2 sentences"
+  }
+]`;
 
-    const prompt = `
-      You are a cute, supportive study companion called Lumora.
-      Generate a multiple choice quiz based on the following instructions:
-      
-      ${groundingInstructions}
-      
-      Number of questions to generate: ${count}
-      Difficulty level: ${difficulty}
-      
-      Topic instructions:
-      - Cleanly split topics: ${activeTopics.join(', ')}.
-      - Treat each topic as a separate study topic.
-      - Generate a balanced quiz covering all entered topics.
-      - Randomize questions across the selected topics rather than focusing on only one.
+    const tokenBudget = Math.min(2048, Math.max(900, count * 280));
+    const result = await generateWithFallback(prompt, {
+      maxOutputTokens: tokenBudget,
+      temperature: 0.2,
+    });
 
-      Your task is to generate exactly ${count} multiple choice questions.
-      You must respond with a JSON array containing objects matching this schema:
-      [
-        {
-          "question": "string (the MCQ question)",
-          "options": ["string", "string", "string", "string"], // exactly 4 choices
-          "correctAnswerIndex": number, // 0, 1, 2, or 3 representing the index of the correct option
-          "explanation": "string (a short, cute, concise explanation under 3 sentences of why this is correct and why the others are wrong. Do not use emoji.)"
-        }
-      ]
-      
-      Make the questions challenging but suited for the difficulty. Ground them strictly according to the grounding rules above.
-    `;
-
-    // Define standard JSON schema to guarantee format and prevent parser syntax errors
-    const quizSchema: Schema = {
-      type: SchemaType.ARRAY,
-      description: "List of generated multiple choice questions",
-      items: {
-        type: SchemaType.OBJECT,
-        properties: {
-          question: { type: SchemaType.STRING, description: "The MCQ question" },
-          options: {
-            type: SchemaType.ARRAY,
-            items: { type: SchemaType.STRING },
-            description: "Exactly 4 options"
-          },
-          correctAnswerIndex: { 
-            type: SchemaType.INTEGER, 
-            description: "Index of correct option in options array (0, 1, 2, or 3)" 
-          },
-          explanation: { 
-            type: SchemaType.STRING, 
-            description: "Concise explanation under 3 sentences of why this is correct and why others are wrong." 
-          }
-        },
-        required: ["question", "options", "correctAnswerIndex", "explanation"]
-      }
-    };
-
-    const responseText = await generateWithFallback(prompt, 'application/json', quizSchema);
-    const cleanedText = cleanJsonString(responseText);
-
-    // Parse and validate response
+    const cleanedText = cleanJsonString(result.text);
     const parsed = JSON.parse(cleanedText);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      const validated: QuizQuestion[] = parsed.map((item: any) => {
-        if (
-          typeof item.question === 'string' &&
-          Array.isArray(item.options) &&
-          item.options.length === 4 &&
-          typeof item.correctAnswerIndex === 'number' &&
-          typeof item.explanation === 'string'
-        ) {
-          return {
-            question: item.question,
-            options: item.options,
-            correctAnswerIndex: item.correctAnswerIndex,
-            explanation: item.explanation,
-          };
-        }
-        throw new Error('Malformed question schema from AI');
-      });
-      return validated;
+
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      throw new Error('AI response is not a valid JSON array of questions');
     }
-    throw new Error('AI response is not a valid JSON array');
-  } catch (error: any) {
-    console.error('Gemini quiz generation failed:', error);
-    
-    // If it's a structured GeminiError, propagate the friendly message
-    if (error instanceof GeminiError) {
-      throw error;
-    }
-    throw new Error(error?.message || 'An unexpected error occurred during quiz generation.');
-  }
+
+    const validated: QuizQuestion[] = parsed.slice(0, count).map((item: any, idx: number) => {
+      if (
+        typeof item.question === 'string' &&
+        Array.isArray(item.options) &&
+        item.options.length === 4 &&
+        typeof item.correctAnswerIndex === 'number' &&
+        typeof item.explanation === 'string'
+      ) {
+        return {
+          question: item.question,
+          options: item.options,
+          correctAnswerIndex: item.correctAnswerIndex,
+          explanation: item.explanation,
+        };
+      }
+      throw new Error(`Malformed question schema at index ${idx}`);
+    });
+
+    // Store in cache for future instant access
+    await setCachedQuiz(cacheKey, validated);
+
+    const totalTime = Date.now() - totalStart;
+    console.log(`[Quiz Performance] Completed generation in ${totalTime}ms via ${result.modelUsed} (${validated.length} MCQs, ${result.retries} retries)`);
+
+    return validated;
+  })().finally(() => {
+    inFlightQuizzes.delete(cacheKey);
+  });
+
+  inFlightQuizzes.set(cacheKey, generationPromise);
+  return generationPromise;
 };
 
-/**
- * Verifies which answers are correct.
- * Currently uses simple client-side index matching, but structured to support server-side AI evaluation if needed.
- */
-export const verifyAnswers = async (
-  questions: QuizQuestion[],
-  selectedAnswers: number[]
-): Promise<boolean[]> => {
-  // Simple index matching is 100% accurate for multiple choice.
-  // We mock a delay if it is routed as a service call.
-  return questions.map((q, idx) => q.correctAnswerIndex === selectedAnswers[idx]);
-};
-
-/**
- * Explains mistakes on quiz questions.
- * Returns a custom written string explaining the user's mistake.
- */
+// ==========================================
+// EXPLAIN MISTAKES
+// ==========================================
 export const explainMistakes = async (
   question: QuizQuestion,
   userSelectedIndex: number
@@ -527,33 +535,24 @@ export const explainMistakes = async (
   const correctAnswerText = question.options[question.correctAnswerIndex] || '';
 
   if (!genAI) {
-    // Simulated explanation fallback
-    return `You selected "${selectedAnswerText}". The correct answer is actually "${correctAnswerText}". ${question.explanation}`;
+    return `You selected "${selectedAnswerText}". The correct answer is "${correctAnswerText}". ${question.explanation}`;
   }
 
   try {
-    const prompt = `
-      You are a cute, helpful study companion called Lumora.
-      The student answered a multiple choice question incorrectly. Explain their mistake concisely.
-      Question: ${question.question}
-      Options:
-      0: ${question.options[0]}
-      1: ${question.options[1]}
-      2: ${question.options[2]}
-      3: ${question.options[3]}
-      Correct Option Index: ${question.correctAnswerIndex} ("${correctAnswerText}")
-      Student Selected Option Index: ${userSelectedIndex} ("${selectedAnswerText}")
-      
-      Give a short, friendly explanation (under 3 sentences, no emoji) explaining why their choice is incorrect and how they can think about the correct answer.
-    `;
+    const prompt = `Student made an error on an MCQ. Explain the mistake in 1-2 friendly sentences.
+Question: "${question.question}"
+Correct Answer: "${correctAnswerText}"
+Student Answer: "${selectedAnswerText}"`;
 
-    const responseText = await generateWithFallback(prompt);
-    return responseText.trim();
-  } catch (error: any) {
-    console.error('Gemini explanation failed:', error);
-    if (error instanceof GeminiError) {
-      throw error;
-    }
-    throw new Error(error?.message || 'Failed to load AI explanation.');
+    const result = await generateWithFallback(prompt, {
+      maxOutputTokens: 250,
+      temperature: 0.2,
+      timeoutMs: 6000,
+    });
+
+    return cleanJsonString(result.text);
+  } catch (err: any) {
+    console.warn('[Explain Mistake] AI explanation unavailable, using built-in explanation:', err?.message);
+    return `You selected "${selectedAnswerText}". The correct answer is "${correctAnswerText}". ${question.explanation}`;
   }
 };

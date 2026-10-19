@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { ActivityIndicator, View, StyleSheet, Text, Platform } from 'react-native';
+import { ActivityIndicator, View, StyleSheet, Text, Platform, Pressable, Animated as RNAnimated } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -12,6 +12,7 @@ import * as Notifications from '../src/utils/notifications';
 import Animated, { SlideInUp, SlideOutUp } from 'react-native-reanimated';
 import { Award } from 'lucide-react-native';
 import { LumoraLogo } from '../src/components/LumoraLogo';
+import { isDemoMode } from '../src/config/demoConfig';
 
 // Configure default local notifications behaviour
 Notifications.setNotificationHandler({
@@ -24,34 +25,92 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// Toast notification component definition
-const SprintCompleteToast = ({ stats, colors, user }: { stats: any; colors: any; user: any }) => {
+// Toast notification component definition (2.5s auto-dismiss with tap-to-dismiss)
+interface SprintToastProps {
+  stats: any;
+  colors: any;
+  user: any;
+  onDismiss: () => void;
+}
+
+const SprintCompleteToast = ({ stats, colors, user, onDismiss }: SprintToastProps) => {
+  const [fadeAnim] = React.useState(() => new RNAnimated.Value(0));
+  const [translateY] = React.useState(() => new RNAnimated.Value(-20));
+
+  const dismiss = React.useCallback(() => {
+    RNAnimated.parallel([
+      RNAnimated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+      RNAnimated.timing(translateY, {
+        toValue: -20,
+        duration: 200,
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+    ]).start(() => {
+      onDismiss();
+    });
+  }, [fadeAnim, translateY, onDismiss]);
+
+  React.useEffect(() => {
+    // 1. Animate in smoothly
+    RNAnimated.parallel([
+      RNAnimated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 220,
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+      RNAnimated.timing(translateY, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+    ]).start();
+
+    // 2. Auto-dismiss after 2.5 seconds (2500ms)
+    const timer = setTimeout(() => {
+      dismiss();
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, [fadeAnim, translateY, dismiss]);
+
   if (!user || !stats) return null;
   const needed = getXPNeededForNextLevel(user.level);
   const ratio = Math.min(1, Math.max(0, user.xp / needed));
   const percentage = Math.round(ratio * 100);
 
   return (
-    <Animated.View
-      entering={SlideInUp.duration(500)}
-      exiting={SlideOutUp.duration(400)}
-      style={[styles.toastContainer, { backgroundColor: colors.card, borderColor: colors.border }]}
+    <RNAnimated.View
+      style={[
+        styles.toastContainer,
+        {
+          backgroundColor: colors.card,
+          borderColor: colors.border,
+          opacity: fadeAnim,
+          transform: [{ translateY }],
+        },
+      ]}
     >
-      <View style={styles.toastHeader}>
-        <Award size={20} color={colors.primary} />
-        <Text style={[styles.toastTitle, { color: colors.textPrimary }]}>Sprint Complete!</Text>
-      </View>
-      <Text style={[styles.toastBody, { color: colors.textSecondary }]}>
-        Focused {stats.duration} min • Earned +{stats.xpEarned} XP
-      </Text>
-      
-      <View style={styles.toastProgressContainer}>
-        <Text style={[styles.toastProgressText, { color: colors.textSecondary }]}>Level {user.level}</Text>
-        <View style={[styles.toastProgressOuter, { backgroundColor: colors.progressBg }]}>
-          <View style={[styles.toastProgressInner, { backgroundColor: colors.primary, width: `${percentage}%` }]} />
+      <Pressable onPress={dismiss} style={{ width: '100%' }}>
+        <View style={styles.toastHeader}>
+          <Award size={20} color={colors.primary} />
+          <Text style={[styles.toastTitle, { color: colors.textPrimary }]}>Sprint Complete!</Text>
         </View>
-      </View>
-    </Animated.View>
+        <Text style={[styles.toastBody, { color: colors.textSecondary }]}>
+          Focused {stats.duration} min • Earned +{stats.xpEarned} XP
+        </Text>
+        
+        <View style={styles.toastProgressContainer}>
+          <Text style={[styles.toastProgressText, { color: colors.textSecondary }]}>Level {user.level}</Text>
+          <View style={[styles.toastProgressOuter, { backgroundColor: colors.progressBg }]}>
+            <View style={[styles.toastProgressInner, { backgroundColor: colors.primary, width: `${percentage}%` }]} />
+          </View>
+        </View>
+      </Pressable>
+    </RNAnimated.View>
   );
 };
 
@@ -63,8 +122,9 @@ export default function RootLayout() {
   // Auth state
   const { user, initialized, initialize, onboardingCompleted } = useAuthStore();
 
-  // Focus Complete Stats Toast states
-  const { lastCompletedSprintStats, clearLastCompletedSprintStats } = useFocusStore();
+  // Focus Complete Stats Toast states with atomic selectors
+  const lastCompletedSprintStats = useFocusStore((state) => state.lastCompletedSprintStats);
+  const clearLastCompletedSprintStats = useFocusStore((state) => state.clearLastCompletedSprintStats);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastData, setToastData] = useState<any>(null);
 
@@ -72,15 +132,14 @@ export default function RootLayout() {
     if (lastCompletedSprintStats) {
       setToastData(lastCompletedSprintStats);
       setToastVisible(true);
-
-      const timer = setTimeout(() => {
-        setToastVisible(false);
-        clearLastCompletedSprintStats();
-      }, 5000);
-
-      return () => clearTimeout(timer);
     }
   }, [lastCompletedSprintStats]);
+
+  const handleDismissToast = () => {
+    setToastVisible(false);
+    setToastData(null);
+    clearLastCompletedSprintStats();
+  };
 
   // Initialize auth listener on mount
   useEffect(() => {
@@ -114,6 +173,14 @@ export default function RootLayout() {
     const inAuthGroup = segmentStr === '(auth)';
     const inOnboardingGroup = segmentStr === '(onboarding)';
     const inAppGroup = segmentStr === '(tabs)' || segmentStr === 'focus' || segmentStr === 'quiz' || segmentStr === 'settings';
+
+    if (isDemoMode()) {
+      // In Demo Mode: ensure direct access to main application tabs without login or onboarding
+      if (!inAppGroup && !inAuthGroup) {
+        router.replace('/(tabs)' as any);
+      }
+      return;
+    }
 
     if (!user) {
       // User is not signed in
@@ -156,8 +223,11 @@ export default function RootLayout() {
     <GestureHandlerRootView style={styles.container}>
       <SafeAreaProvider>
         <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-          <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+          <Stack.Screen name="index" options={{ headerShown: false }} />
+          <Stack.Screen name="(auth)/login" options={{ headerShown: false }} />
+          <Stack.Screen name="(auth)/register" options={{ headerShown: false }} />
+          <Stack.Screen name="(auth)/forgot-password" options={{ headerShown: false }} />
+          <Stack.Screen name="(onboarding)/index" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="focus/session" options={{ headerShown: false, animation: 'fade' }} />
           <Stack.Screen name="quiz/[sessionId]" options={{ headerShown: false, presentation: 'modal' }} />
@@ -170,6 +240,7 @@ export default function RootLayout() {
             stats={toastData}
             colors={colors}
             user={user}
+            onDismiss={handleDismissToast}
           />
         )}
       </SafeAreaProvider>

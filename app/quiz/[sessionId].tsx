@@ -1,18 +1,19 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { AlertTriangle, Award, Brain, Check, Sparkles, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { Button } from '../../src/components/Button';
 import { Card } from '../../src/components/Card';
 import { Input } from '../../src/components/Input';
-import { explainMistakes, generateQuiz } from '../../src/services/ai/gemini';
+import { SubjectSelector } from '../../src/components/SubjectSelector';
+import { LumoraLogo } from '../../src/components/LumoraLogo';
+import { explainMistakes, generateQuiz, getSampleQuiz } from '../../src/services/ai/gemini';
 import { saveQuiz } from '../../src/services/firebase/firestore';
 import { useAuthStore } from '../../src/store/authStore';
 import { useFocusStore } from '../../src/store/focusStore';
 import { useThemeStore } from '../../src/store/themeStore';
 import { QuizQuestion } from '../../src/types';
-import { LumoraLogo } from '../../src/components/LumoraLogo';
-import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming } from 'react-native-reanimated';
 
 type QuizState = 'setup' | 'loading' | 'error' | 'active' | 'summary';
 
@@ -34,14 +35,16 @@ export default function QuizScreen() {
   }));
 
   // Initial setup state
-  const hasStudyMaterial = notes && notes.trim() !== '';
-  const hasSubjectTopic = subject.trim() !== '' && topic.trim() !== '';
-  const [needsSetup, setNeedsSetup] = useState(!hasStudyMaterial && !hasSubjectTopic);
-  const [setupSubject, setSetupSubject] = useState(subject);
-  const [setupTopic, setSetupTopic] = useState(topic);
+  const hasStudyData = subject.trim() !== '' && topic.trim() !== '';
+  const [needsSetup, setNeedsSetup] = useState(!hasStudyData);
+  const [skipModalVisible, setSkipModalVisible] = useState(false);
 
   // Quiz States
   const [quizState, setQuizState] = useState<QuizState>('setup');
+  const [setupSubject, setSetupSubject] = useState(subject);
+  const [setupTopic, setSetupTopic] = useState(topic);
+
+  // Quiz Data
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [userAnswers, setUserAnswers] = useState<Record<number, number>>({});
@@ -49,6 +52,7 @@ export default function QuizScreen() {
   const [xpAwarded, setXpAwarded] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [retryTrigger, setRetryTrigger] = useState(0);
+  const [isSampleMode, setIsSampleMode] = useState(false);
 
   // Custom Gemini explanation states
   const [aiExplanations, setAiExplanations] = useState<Record<number, string>>({});
@@ -75,6 +79,7 @@ export default function QuizScreen() {
           'medium'
         );
         if (active) {
+          setIsSampleMode(false);
           setQuestions(generated);
           setQuizState('active');
           setCurrentIdx(0);
@@ -84,7 +89,7 @@ export default function QuizScreen() {
       } catch (err: any) {
         console.error('Failed to load quiz:', err);
         if (active) {
-          setErrorMessage(err?.message || "We couldn't connect to the AI service. Would you like to skip the quiz and proceed to your break?");
+          setErrorMessage(err?.message || "AI quiz generation is temporarily unavailable. You can retry, load demo sample questions, or proceed to your break.");
           setQuizState('error');
         }
       }
@@ -95,6 +100,18 @@ export default function QuizScreen() {
       active = false;
     };
   }, [needsSetup, retryTrigger]);
+
+  const handleUseSampleQuiz = () => {
+    const currentSub = subject || setupSubject || 'Operating Systems';
+    const currentTop = topic || setupTopic || 'Deadlocks';
+    const samples = getSampleQuiz(currentSub, currentTop, 5, 'medium');
+    setQuestions(samples);
+    setIsSampleMode(true);
+    setQuizState('active');
+    setCurrentIdx(0);
+    setUserAnswers({});
+    setScore(0);
+  };
 
   // Handle Form Submission for Setup
   const handleStartSetupQuiz = () => {
@@ -178,13 +195,19 @@ export default function QuizScreen() {
     router.replace('/(tabs)' as any);
   };
 
-  // ==========================================
-  // RENDER SETUP STATE
-  // ==========================================
   if (quizState === 'setup') {
     return (
       <SafeAreaView style={[styles.centerContainer, { backgroundColor: colors.background }]}>
-        <ScrollView contentContainerStyle={styles.setupScroll} keyboardShouldPersistTaps="handled">
+        <View style={{ width: '100%', flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 24, paddingTop: 10 }}>
+          <Pressable onPress={() => setSkipModalVisible(true)} style={{ padding: 8 }}>
+            <X size={24} color={colors.textSecondary} />
+          </Pressable>
+        </View>
+        <ScrollView
+          style={styles.setupScrollView}
+          contentContainerStyle={styles.setupScroll}
+          keyboardShouldPersistTaps="handled"
+        >
           <Card style={styles.setupCard} bordered>
             <View style={styles.setupHeader}>
               <Brain size={42} color={colors.primary} />
@@ -194,11 +217,11 @@ export default function QuizScreen() {
               </Text>
             </View>
 
-            <Input
-              label="Subject"
-              placeholder="e.g. Operating Systems"
+            <SubjectSelector
+              label="Subject / Course"
               value={setupSubject}
-              onChangeText={setSetupSubject}
+              onChange={setSetupSubject}
+              placeholder="Add subject (e.g. Operating Systems)"
             />
 
             <Input
@@ -206,16 +229,48 @@ export default function QuizScreen() {
               placeholder="Example: Deadlocks, Scheduling, Synchronization"
               value={setupTopic}
               onChangeText={setSetupTopic}
+              containerStyle={{ width: '100%', marginBottom: 18 }}
             />
 
             <Button
               title="Generate Quiz"
               onPress={handleStartSetupQuiz}
               disabled={setupSubject.trim() === '' || setupTopic.trim() === ''}
-              style={{ marginTop: 14 }}
+              style={{ marginTop: 8, width: '100%' }}
             />
           </Card>
         </ScrollView>
+
+        {/* SKIP CONFIRMATION MODAL */}
+        <Modal visible={skipModalVisible} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Brain size={48} color={colors.primary} style={{ marginBottom: 12 }} />
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Skip this Quiz? 🤔</Text>
+              <Text style={[styles.modalDescription, { color: colors.textSecondary }]}>
+                Skipping this check-in means you won't earn any XP for this study check-in, and no progress updates will be recorded. We recommend taking 2 minutes to test your recall!
+              </Text>
+              <View style={styles.modalButtons}>
+                <Button
+                  title="Keep Testing"
+                  onPress={() => setSkipModalVisible(false)}
+                  variant="primary"
+                  style={styles.modalActionBtn}
+                />
+                <Button
+                  title="Skip Quiz"
+                  onPress={() => {
+                    setSkipModalVisible(false);
+                    handleFinish();
+                  }}
+                  variant="ghost"
+                  style={[styles.modalActionBtn, styles.dangerOutlineBtn]}
+                  textStyle={{ color: colors.error }}
+                />
+              </View>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     );
   }
@@ -253,19 +308,25 @@ export default function QuizScreen() {
           <Text style={[styles.errorMsg, { color: colors.textSecondary }]}>
             {errorMessage}
           </Text>
-          <View style={{ width: '100%', gap: 12 }}>
+          <View style={{ width: '100%', gap: 10 }}>
             <Button
-              title="Skip Quiz to Break"
-              onPress={handleFinish}
-            />
-            <Button
-              title="Retry Generation"
-              variant="secondary"
+              title="Retry AI Generation"
+              variant="primary"
               onPress={() => {
                 setNeedsSetup(false);
                 setQuizState('loading');
                 setRetryTrigger((prev) => prev + 1);
               }}
+            />
+            <Button
+              title="Load Demo Sample MCQs"
+              variant="secondary"
+              onPress={handleUseSampleQuiz}
+            />
+            <Button
+              title="Skip Quiz to Break"
+              variant="secondary"
+              onPress={handleFinish}
             />
           </View>
         </Card>
@@ -285,15 +346,22 @@ export default function QuizScreen() {
     return (
       <SafeAreaView style={[styles.mainContainer, { backgroundColor: colors.background }]}>
         <View style={styles.topHeader}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
             <Brain size={22} color={colors.primary} />
             <Text style={[styles.quizSubject, { color: colors.textPrimary }]} numberOfLines={1}>
               {subject || setupSubject}
             </Text>
+            {isSampleMode && (
+              <View style={[styles.sampleBadge, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.sampleBadgeText, { color: colors.primary }]}>
+                  Demo Sample
+                </Text>
+              </View>
+            )}
           </View>
-          <Text style={[styles.progressText, { color: colors.textSecondary }]}>
-            Question {currentIdx + 1} of {questions.length}
-          </Text>
+          <Pressable onPress={() => setSkipModalVisible(true)} style={{ padding: 4 }}>
+            <X size={22} color={colors.textSecondary} />
+          </Pressable>
         </View>
 
         {/* ProgressBar */}
@@ -310,7 +378,12 @@ export default function QuizScreen() {
         </View>
 
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <Text style={[styles.quizHeaderTitle, { color: colors.textPrimary }]}>✨ Knowledge Check</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <Text style={[styles.quizHeaderTitle, { color: colors.textPrimary }]}>✨ Knowledge Check</Text>
+            <Text style={[styles.progressText, { color: colors.textSecondary }]}>
+              Question {currentIdx + 1} of {questions.length}
+            </Text>
+          </View>
           <Text style={[styles.quizSubtitleText, { color: colors.textSecondary }]}>Let's see what you remember.</Text>
 
           <Card style={styles.questionCard} bordered>
@@ -438,6 +511,36 @@ export default function QuizScreen() {
             />
           </View>
         )}
+        {/* SKIP CONFIRMATION MODAL */}
+        <Modal visible={skipModalVisible} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Brain size={48} color={colors.primary} style={{ marginBottom: 12 }} />
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Skip this Quiz? 🤔</Text>
+              <Text style={[styles.modalDescription, { color: colors.textSecondary }]}>
+                Skipping this check-in means you won't earn any XP for this study check-in, and no progress updates will be recorded. We recommend taking 2 minutes to test your recall!
+              </Text>
+              <View style={styles.modalButtons}>
+                <Button
+                  title="Keep Testing"
+                  onPress={() => setSkipModalVisible(false)}
+                  variant="primary"
+                  style={styles.modalActionBtn}
+                />
+                <Button
+                  title="Skip Quiz"
+                  onPress={() => {
+                    setSkipModalVisible(false);
+                    handleFinish();
+                  }}
+                  variant="ghost"
+                  style={[styles.modalActionBtn, styles.dangerOutlineBtn]}
+                  textStyle={{ color: colors.error }}
+                />
+              </View>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     );
   }
@@ -488,20 +591,29 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
   },
   mainContainer: {
     flex: 1,
     paddingTop: Platform.OS === 'ios' ? 60 : 30,
   },
+  setupScrollView: {
+    width: '100%',
+    flex: 1,
+  },
   setupScroll: {
+    flexGrow: 1,
     width: '100%',
     justifyContent: 'center',
-    paddingVertical: 40,
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 4,
   },
   setupCard: {
-    padding: 24,
+    padding: 22,
     width: '100%',
+    maxWidth: 520,
+    alignSelf: 'center',
   },
   setupHeader: {
     alignItems: 'center',
@@ -714,5 +826,52 @@ const styles = StyleSheet.create({
   xpText: {
     fontSize: 14,
     fontWeight: '800',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 24,
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+    maxHeight: '85%',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalDescription: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  modalButtons: {
+    width: '100%',
+    gap: 10,
+  },
+  modalActionBtn: {
+    width: '100%',
+  },
+  dangerOutlineBtn: {
+    borderWidth: 2,
+  },
+  sampleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginLeft: 4,
+  },
+  sampleBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

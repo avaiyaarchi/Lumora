@@ -1,16 +1,46 @@
+import { format } from 'date-fns';
 import * as DocumentPicker from 'expo-document-picker';
 import { useRouter } from 'expo-router';
-import { ChevronRight, FileText, Flame, Plus, Sliders, Square, Trash2, X } from 'lucide-react-native';
+import { Brain, Check, ChevronRight, FileText, Flame, Plus, Sliders, Square, X } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../../src/components/Button';
 import { Card } from '../../src/components/Card';
 import { Input } from '../../src/components/Input';
+import { SubjectSelector } from '../../src/components/SubjectSelector';
 import { TimerCircle } from '../../src/components/TimerCircle';
 import { AvatarLayer } from '../../src/components/avatars/AvatarLayer';
+import { getFocusSessions, updateFocusSessionDifficulty } from '../../src/services/firebase/firestore';
 import { useAuthStore } from '../../src/store/authStore';
 import { useFocusStore } from '../../src/store/focusStore';
+import { usePlannerStore } from '../../src/store/plannerStore';
 import { useThemeStore } from '../../src/store/themeStore';
+import { FocusSession } from '../../src/types';
+
+const getStudyStreakDays = (sessions: FocusSession[]) => {
+  const today = new Date();
+  const past7Days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(today.getDate() - i);
+    past7Days.push(d);
+  }
+
+  const studyDates = new Set(
+    sessions.map(s => s.timestamp.split('T')[0])
+  );
+
+  return past7Days.map(date => {
+    const dateStr = format(date, 'yyyy-MM-dd');
+    return {
+      date,
+      dateStr,
+      hasStudied: studyDates.has(dateStr),
+      dayLabel: format(date, 'EEE'),
+      dayNum: format(date, 'd'),
+    };
+  });
+};
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -27,6 +57,7 @@ export default function HomeScreen() {
     longBreakDuration,
     sessionsBeforeLongBreak,
     completedSessionsToday,
+    completedSessionsTotal,
     autoStartFocus,
     autoStartShortBreak,
     autoStartLongBreak,
@@ -36,6 +67,8 @@ export default function HomeScreen() {
     notes,
     fileName,
     fileUri,
+    activeTaskId,
+    lastCompletedSprintStats,
     startTimer,
     pauseTimer,
     resetTimer,
@@ -43,11 +76,16 @@ export default function HomeScreen() {
     skipToNext,
     setSettings,
     setContext,
+    clearLastCompletedSprintStats,
   } = useFocusStore();
+
+  // Stores
+  const { tasks, loadTasks, addTask } = usePlannerStore();
 
   // Modals Visibility
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [contextVisible, setContextVisible] = useState(false);
+  const [difficultyModalVisible, setDifficultyModalVisible] = useState(false);
 
   // Local Form state for Settings
   const [localFocus, setLocalFocus] = useState(focusDuration.toString());
@@ -59,12 +97,56 @@ export default function HomeScreen() {
   const [localAutoLong, setLocalAutoLong] = useState(autoStartLongBreak);
   const [localAutoQuiz, setLocalAutoQuiz] = useState(autoStartQuiz);
 
-  // Local Form state for Context
+  // Local state for Context select / create task
+  const [sessions, setSessions] = useState<FocusSession[]>([]);
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [taskSubject, setTaskSubject] = useState('');
+  const [taskTopic, setTaskTopic] = useState('');
+  const [taskSessions, setTaskSessions] = useState('2');
+  const [taskPriority, setTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [taskNotes, setTaskNotes] = useState('');
+
+  // Local Form state for Context (used for document picking fallback)
   const [localSubject, setLocalSubject] = useState(subject);
   const [localTopic, setLocalTopic] = useState(topic);
   const [localNotes, setLocalNotes] = useState(notes);
   const [localFileName, setLocalFileName] = useState(fileName);
   const [localFileUri, setLocalFileUri] = useState(fileUri);
+
+  // Load tasks on mount or when user changes
+  useEffect(() => {
+    if (user) {
+      loadTasks(user.uid);
+    }
+  }, [user]);
+
+  // Load completed focus sessions to render streak indicators
+  useEffect(() => {
+    if (user) {
+      getFocusSessions(user.uid).then(setSessions).catch(console.error);
+    }
+  }, [user, completedSessionsTotal]);
+
+  // Sync settings local state when store updates
+  useEffect(() => {
+    setLocalFocus(focusDuration.toString());
+    setLocalShort(shortBreakDuration.toString());
+    setLocalLong(longBreakDuration.toString());
+    setLocalCount(sessionsBeforeLongBreak.toString());
+    setLocalAutoFocus(autoStartFocus);
+    setLocalAutoShort(autoStartShortBreak);
+    setLocalAutoLong(autoStartLongBreak);
+    setLocalAutoQuiz(autoStartQuiz);
+  }, [focusDuration, shortBreakDuration, longBreakDuration, sessionsBeforeLongBreak, autoStartFocus, autoStartShortBreak, autoStartLongBreak, autoStartQuiz]);
+
+  // Sync post-session difficulty feedback visibility
+  useEffect(() => {
+    if (lastCompletedSprintStats) {
+      setDifficultyModalVisible(true);
+    } else {
+      setDifficultyModalVisible(false);
+    }
+  }, [lastCompletedSprintStats]);
 
   // Navigate to distraction-free focus screen when in Focus mode and running
   useEffect(() => {
@@ -222,7 +304,31 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* Goal Progress Bar */}
+      {/* Daily Progress & Streak Indicators */}
+      <View style={{ marginBottom: 24 }}>
+        <Card style={{ padding: 18, marginBottom: 16 }} bordered>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Flame size={20} color={colors.primary} />
+              <Text style={{ fontSize: 15, fontWeight: '800', color: colors.textPrimary }}>Daily Focus Target</Text>
+            </View>
+            <Text style={{ fontSize: 13, fontWeight: '800', color: colors.primary }}>
+              {completedSessionsToday * focusDuration} / 100 mins
+            </Text>
+          </View>
+          <View style={{ height: 10, borderRadius: 5, backgroundColor: colors.progressBg, overflow: 'hidden', marginBottom: 10 }}>
+            <View style={{ height: '100%', borderRadius: 5, backgroundColor: colors.primary, width: `${Math.min(100, ((completedSessionsToday * focusDuration) / 100) * 100)}%` }} />
+          </View>
+          <Text style={{ fontSize: 11, fontWeight: '600', color: colors.textSecondary }}>
+            {completedSessionsToday * focusDuration >= 100
+              ? "🎉 You've reached today's target! Amazing work!"
+              : `Focus for ${100 - completedSessionsToday * focusDuration} more minutes to hit your goal.`}
+          </Text>
+        </Card>
+
+        {/* 7-day Streak Calendar Indicators */}
+
+      </View>
 
 
       {/* Central Timer & Avatar Section */}
@@ -271,16 +377,53 @@ export default function HomeScreen() {
       </View>
 
       {/* Study Context Section */}
+      <View>
+        <Card style={{ padding: 16 }} bordered>
+          <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary, marginBottom: 12, marginLeft: 2 }}>
+            Weekly Activity Streak
+          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            {getStudyStreakDays(sessions).map((day) => (
+              <View key={day.dateStr} style={{ alignItems: 'center' }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: colors.textSecondary, marginBottom: 6 }}>
+                  {day.dayLabel}
+                </Text>
+                <View
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    borderWidth: 2,
+                    borderColor: day.hasStudied ? colors.primary : colors.border,
+                    backgroundColor: day.hasStudied ? colors.secondary : colors.card,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {day.hasStudied ? (
+                    <Check size={14} color={colors.primary} strokeWidth={3} />
+                  ) : (
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textSecondary }}>
+                      {day.dayNum}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            ))}
+          </View>
+        </Card>
+      </View>
       <View style={styles.sectionContainer}>
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Active Subject</Text>
           <Pressable
             onPress={() => {
-              setLocalSubject(subject);
-              setLocalTopic(topic);
-              setLocalNotes(notes);
-              setLocalFileName(fileName);
-              setLocalFileUri(fileUri);
+              setTaskSubject('');
+              setTaskTopic('');
+              setTaskSessions('2');
+              setTaskPriority('medium');
+              setTaskNotes('');
+              setIsCreatingTask(false);
               setContextVisible(true);
             }}
             style={styles.editContextLink}
@@ -299,6 +442,11 @@ export default function HomeScreen() {
               {topic ? (
                 <Text style={[styles.contextTopic, { color: colors.textSecondary }]}>{topic}</Text>
               ) : null}
+              {activeTaskId ? (
+                <Text style={{ fontSize: 11, fontWeight: '700', color: colors.primary, marginTop: 4, marginBottom: 8 }}>
+                  Linked to Planner Task
+                </Text>
+              ) : null}
               {fileName ? (
                 <View style={[styles.contextFileRow, { backgroundColor: colors.progressBg }]}>
                   <FileText size={16} color={colors.primary} />
@@ -311,7 +459,7 @@ export default function HomeScreen() {
           ) : (
             <View style={styles.noContextContainer}>
               <Text style={[styles.noContextText, { color: colors.textSecondary }]}>
-                No study topic set. Tap 'Set Topic' to link notes or files for AI Quizzes.
+                No study topic set. Tap 'Set Topic' to select a task or define one.
               </Text>
             </View>
           )}
@@ -437,68 +585,265 @@ export default function HomeScreen() {
       {/* STUDY CONTEXT MODAL */}
       <Modal visible={contextVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card, borderTopLeftRadius: 28, borderTopRightRadius: 28 }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Define Study Subject</Text>
-              <Pressable onPress={() => setContextVisible(false)}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
+                {isCreatingTask ? 'Create Study Target' : 'Select Study Target'}
+              </Text>
+              <Pressable onPress={() => {
+                setContextVisible(false);
+                setIsCreatingTask(false);
+              }}>
                 <X size={24} color={colors.textPrimary} />
               </Pressable>
             </View>
 
-            <ScrollView contentContainerStyle={styles.modalScroll}>
-              <Input
-                label="Subject / Course"
-                placeholder="Operating Systems"
-                value={localSubject}
-                onChangeText={setLocalSubject}
-              />
-              <Input
-                label="Topic Name"
-                placeholder="Deadlocks & Semaphores"
-                value={localTopic}
-                onChangeText={setLocalTopic}
-              />
-              <Input
-                label="Self-Study Notes (Optional)"
-                placeholder="Write summaries or paste details here..."
-                value={localNotes}
-                onChangeText={setLocalNotes}
-                multiline
-                numberOfLines={3}
-                inputStyle={{ height: 80, textAlignVertical: 'top', paddingTop: 10 }}
-              />
-
-              {/* PDF Document Upload */}
-              <Text style={[styles.sectionSubTitle, { color: colors.textPrimary, marginBottom: 8 }]}>
-                PDF Material (Optional)
-              </Text>
-
-              {localFileName ? (
-                <View style={[styles.fileUploadedCard, { backgroundColor: colors.progressBg, borderColor: colors.border }]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                    <FileText size={22} color={colors.primary} style={{ marginRight: 10 }} />
-                    <Text style={{ color: colors.textPrimary, fontWeight: '600', flex: 1 }} numberOfLines={1}>
-                      {localFileName}
-                    </Text>
-                  </View>
-                  <Pressable onPress={handleRemoveDocument}>
-                    <Trash2 size={20} color={colors.error} />
-                  </Pressable>
+            <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
+              {!isCreatingTask ? (
+                <View>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textSecondary, marginBottom: 12 }}>
+                    Select an active task from your planner:
+                  </Text>
+                  {tasks.filter(t => !t.completed).length === 0 ? (
+                    <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+                      <Text style={{ color: colors.textSecondary, fontSize: 13, fontWeight: '600', textAlign: 'center', marginBottom: 16 }}>
+                        No active tasks scheduled in your planner.
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={{ gap: 10, marginBottom: 20 }}>
+                      {tasks.filter(t => !t.completed).map((task) => (
+                        <Pressable
+                          key={task.id}
+                          onPress={() => {
+                            setContext({
+                              subject: task.subject,
+                              topic: task.topic,
+                              notes: task.notes || '',
+                              fileUri: null,
+                              fileName: null,
+                              activeTaskId: task.id,
+                            });
+                            setContextVisible(false);
+                          }}
+                          style={{
+                            padding: 14,
+                            borderRadius: 16,
+                            borderWidth: 1.5,
+                            borderColor: activeTaskId === task.id ? colors.primary : colors.border,
+                            backgroundColor: activeTaskId === task.id ? colors.secondary : colors.card,
+                          }}
+                        >
+                          <Text style={{ fontSize: 14, fontWeight: '800', color: colors.textPrimary }}>
+                            {task.subject}
+                          </Text>
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginTop: 2 }}>
+                            {task.topic}
+                          </Text>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: colors.primary, marginTop: 6 }}>
+                            Cycles: {task.actualSessions}/{task.estimatedSessions}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+                  <Button
+                    title="Or Create a New Target"
+                    onPress={() => setIsCreatingTask(true)}
+                    variant="secondary"
+                  />
                 </View>
               ) : (
-                <Pressable
-                  onPress={handlePickDocument}
-                  style={[styles.fileUploadBtn, { borderColor: colors.border, backgroundColor: colors.background }]}
-                >
-                  <FileText size={24} color={colors.primary} style={{ marginBottom: 6 }} />
-                  <Text style={{ color: colors.textSecondary, fontWeight: '700', fontSize: 13 }}>
-                    Upload Study PDF
-                  </Text>
-                </Pressable>
-              )}
+                <View>
+                  <SubjectSelector
+                    value={taskSubject}
+                    onChange={(subj) => {
+                      setTaskSubject(subj);
+                      setTaskTopic('');
+                    }}
+                  />
 
-              <Button title="Apply Topic" onPress={handleSaveContext} style={{ marginTop: 24 }} />
+                  <View style={{ marginBottom: 16 }}>
+                    <Input
+                      label="Topic Name"
+                      placeholder="E.g., Banker's Algorithm"
+                      value={taskTopic}
+                      onChangeText={setTaskTopic}
+                    />
+                    {Array.from(new Set(tasks.filter((t) => t.subject === taskSubject).map((t) => t.topic).filter(Boolean))).length > 0 && (
+                      <View style={{ marginTop: 8 }}>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textSecondary, marginBottom: 6 }}>
+                          Or select an existing topic:
+                        </Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', gap: 6, paddingBottom: 4 }}>
+                          {Array.from(new Set(tasks.filter((t) => t.subject === taskSubject).map((t) => t.topic).filter(Boolean))).map((top) => (
+                            <Pressable
+                              key={top}
+                              onPress={() => setTaskTopic(top)}
+                              style={{
+                                paddingVertical: 6,
+                                paddingHorizontal: 12,
+                                borderRadius: 14,
+                                borderWidth: 1.5,
+                                borderColor: taskTopic === top ? colors.primary : colors.border,
+                                backgroundColor: taskTopic === top ? colors.secondary : colors.card,
+                                marginRight: 6,
+                              }}
+                            >
+                              <Text style={{ color: taskTopic === top ? colors.primary : colors.textPrimary, fontWeight: '700', fontSize: 11 }}>
+                                {top}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+                  </View>
+
+                  <Input
+                    label="Estimated Focus Cycles"
+                    placeholder="2"
+                    keyboardType="numeric"
+                    value={taskSessions}
+                    onChangeText={setTaskSessions}
+                  />
+
+                  <View style={{ marginBottom: 16 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary, marginBottom: 8 }}>
+                      Priority Level
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      {(['low', 'medium', 'high'] as const).map((p) => {
+                        const isSelected = taskPriority === p;
+                        let pColor = colors.success;
+                        if (p === 'medium') pColor = colors.warning;
+                        if (p === 'high') pColor = colors.error;
+
+                        return (
+                          <Pressable
+                            key={p}
+                            onPress={() => setTaskPriority(p)}
+                            style={{
+                              flex: 1,
+                              paddingVertical: 10,
+                              alignItems: 'center',
+                              borderRadius: 14,
+                              borderWidth: 1.5,
+                              borderColor: isSelected ? pColor : colors.border,
+                              backgroundColor: isSelected ? pColor + '15' : colors.card,
+                            }}
+                          >
+                            <Text style={{ color: isSelected ? pColor : colors.textSecondary, fontWeight: '700', fontSize: 13 }}>
+                              {p.toUpperCase()}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  <Input
+                    label="Self-Study Notes (Optional)"
+                    placeholder="Write summaries or paste details here..."
+                    value={taskNotes}
+                    onChangeText={setTaskNotes}
+                    multiline
+                    numberOfLines={3}
+                    inputStyle={{ height: 80, textAlignVertical: 'top', paddingTop: 10 }}
+                  />
+
+                  <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+                    <Button
+                      title="Back to List"
+                      onPress={() => setIsCreatingTask(false)}
+                      variant="secondary"
+                      style={{ flex: 1 }}
+                    />
+                    <Button
+                      title="Apply Target"
+                      onPress={async () => {
+                        if (!taskSubject.trim() || !taskTopic.trim()) {
+                          Alert.alert('Missing Fields', 'Please enter subject and topic.');
+                          return;
+                        }
+                        const newTaskId = 'task-' + Math.random().toString(36).substr(2, 9);
+                        if (user) {
+                          await addTask({
+                            id: newTaskId,
+                            userId: user.uid,
+                            subject: taskSubject,
+                            topic: taskTopic,
+                            estimatedSessions: parseInt(taskSessions, 10) || 2,
+                            priority: taskPriority,
+                            deadline: format(new Date(), 'yyyy-MM-dd'),
+                            notes: taskNotes,
+                            completed: false,
+                          });
+                        }
+                        setContext({
+                          subject: taskSubject,
+                          topic: taskTopic,
+                          notes: taskNotes,
+                          activeTaskId: newTaskId,
+                        });
+                        setContextVisible(false);
+                        setIsCreatingTask(false);
+                      }}
+                      style={{ flex: 1 }}
+                    />
+                  </View>
+                </View>
+              )}
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      {/* POST-SESSION DIFFICULTY FEEDBACK MODAL */}
+      <Modal visible={difficultyModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card, borderTopLeftRadius: 30, borderTopRightRadius: 30 }]}>
+            <View style={{ alignItems: 'center', width: '100%', paddingVertical: 10 }}>
+              <Brain size={48} color={colors.primary} style={{ marginBottom: 12 }} />
+              <Text style={[styles.modalTitle, { color: colors.textPrimary, textAlign: 'center', marginBottom: 6 }]}>
+                Focus Session Complete! 🎉
+              </Text>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: colors.textSecondary, textAlign: 'center', marginBottom: 20, paddingHorizontal: 16 }}>
+                You studied for {lastCompletedSprintStats?.duration} minutes and earned {lastCompletedSprintStats?.xpEarned} XP! How was the difficulty of this topic?
+              </Text>
+
+              <View style={{ width: '100%', gap: 10, paddingHorizontal: 10 }}>
+                <Button
+                  title="Easy 😊"
+                  onPress={async () => {
+                    if (user && lastCompletedSprintStats?.sessionId) {
+                      await updateFocusSessionDifficulty(user.uid, lastCompletedSprintStats.sessionId, 'easy');
+                    }
+                    clearLastCompletedSprintStats();
+                  }}
+                  style={{ backgroundColor: colors.success }}
+                />
+                <Button
+                  title="Medium 😐"
+                  onPress={async () => {
+                    if (user && lastCompletedSprintStats?.sessionId) {
+                      await updateFocusSessionDifficulty(user.uid, lastCompletedSprintStats.sessionId, 'medium');
+                    }
+                    clearLastCompletedSprintStats();
+                  }}
+                  style={{ backgroundColor: colors.warning }}
+                />
+                <Button
+                  title="Hard 😫"
+                  onPress={async () => {
+                    if (user && lastCompletedSprintStats?.sessionId) {
+                      await updateFocusSessionDifficulty(user.uid, lastCompletedSprintStats.sessionId, 'hard');
+                    }
+                    clearLastCompletedSprintStats();
+                  }}
+                  style={{ backgroundColor: colors.error }}
+                />
+              </View>
+            </View>
           </View>
         </View>
       </Modal>

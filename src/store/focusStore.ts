@@ -5,6 +5,8 @@ import { AppState, AppStateStatus } from 'react-native';
 import * as Notifications from '../utils/notifications';
 import { saveFocusSession } from '../services/firebase/firestore';
 import { useAuthStore } from './authStore';
+import { usePlannerStore } from './plannerStore';
+import { useSubjectStore } from './subjectStore';
 
 export type SessionMode = 'focus' | 'shortBreak' | 'longBreak' | 'quizReady';
 
@@ -43,16 +45,17 @@ interface FocusState extends FocusSettings {
   notes: string;
   fileUri: string | null;
   fileName: string | null;
+  activeTaskId: string | null;
 
   // Extra States
   completedSessionsForQuizCount: number;
   showWaterReminder: boolean;
   focusSprintFinished: boolean;
-  lastCompletedSprintStats: { duration: number; xpEarned: number; triggerQuiz: boolean } | null;
+  lastCompletedSprintStats: { duration: number; xpEarned: number; triggerQuiz: boolean; sessionId: string | null } | null;
 
   // Actions
   setSettings: (settings: Partial<FocusSettings>) => void;
-  setContext: (context: { subject: string; topic: string; notes?: string; fileUri?: string | null; fileName?: string | null }) => void;
+  setContext: (context: { subject: string; topic: string; notes?: string; fileUri?: string | null; fileName?: string | null; activeTaskId?: string | null }) => void;
   startTimer: () => void;
   pauseTimer: () => void;
   resetTimer: () => void;
@@ -118,6 +121,7 @@ export const useFocusStore = create<FocusState>()(
         notes: '',
         fileUri: null,
         fileName: null,
+        activeTaskId: null,
 
         setSettings: (settings) => {
           set(settings);
@@ -133,6 +137,9 @@ export const useFocusStore = create<FocusState>()(
 
         setContext: (context) => {
           set(context);
+          if (context.subject) {
+            useSubjectStore.getState().syncWithTasksAndSessions([context.subject]);
+          }
         },
 
         startTimer: () => {
@@ -292,6 +299,7 @@ export const useFocusStore = create<FocusState>()(
             aiQuizEnabled,
             quizFrequency,
             completedSessionsForQuizCount,
+            activeTaskId,
           } = get();
 
           // Cancel any notifications
@@ -323,13 +331,28 @@ export const useFocusStore = create<FocusState>()(
             // Trigger XP update in authStore (1 min focus = 1 XP)
             const user = useAuthStore.getState().user;
             const xpEarned = focusDuration;
+            let finalActiveTaskId = activeTaskId;
+            const sessionId = 'session-' + Math.random().toString(36).substr(2, 9);
+
             if (user) {
               await useAuthStore.getState().addXP(xpEarned);
               await useAuthStore.getState().updateStreak();
+
+              // If a planner task is connected, increment completed cycles
+              if (activeTaskId) {
+                await usePlannerStore.getState().incrementTaskSessions(user.uid, activeTaskId);
+                const updatedTasks = usePlannerStore.getState().tasks;
+                const activeTask = updatedTasks.find((t) => t.id === activeTaskId);
+                // If task cycles completed, mark finished and clear activeTaskId
+                if (activeTask && activeTask.completed) {
+                  finalActiveTaskId = null;
+                  set({ activeTaskId: null });
+                }
+              }
               
               // Save Focus Session to DB
               const session = {
-                id: 'session-' + Math.random().toString(36).substr(2, 9),
+                id: sessionId,
                 userId: user.uid,
                 subject: subject || 'General Studies',
                 topic: topic || 'Core concepts',
@@ -349,6 +372,7 @@ export const useFocusStore = create<FocusState>()(
                 duration: focusDuration,
                 xpEarned: xpEarned,
                 triggerQuiz: triggerQuiz,
+                sessionId: sessionId,
               }
             });
 
@@ -365,7 +389,8 @@ export const useFocusStore = create<FocusState>()(
                 mode: 'longBreak',
                 timeLeft: minToSec(longBreakDuration),
               });
-              if (autoStartLongBreak) {
+              // Force break auto-start if a task is active
+              if (finalActiveTaskId || autoStartLongBreak) {
                 get().startTimer();
               }
             } else {
@@ -373,7 +398,8 @@ export const useFocusStore = create<FocusState>()(
                 mode: 'shortBreak',
                 timeLeft: minToSec(shortBreakDuration),
               });
-              if (autoStartShortBreak) {
+              // Force break auto-start if a task is active
+              if (finalActiveTaskId || autoStartShortBreak) {
                 get().startTimer();
               }
             }
@@ -383,7 +409,10 @@ export const useFocusStore = create<FocusState>()(
               mode: 'focus',
               timeLeft: minToSec(focusDuration),
             });
-            if (autoStartFocus) {
+            // Force auto-start next focus cycle if task is active
+            if (get().activeTaskId) {
+              get().startTimer();
+            } else if (autoStartFocus) {
               get().startTimer();
             }
           }
@@ -460,6 +489,7 @@ export const useFocusStore = create<FocusState>()(
         completedSessionsForQuizCount: state.completedSessionsForQuizCount,
         waterReminderEnabled: state.waterReminderEnabled,
         waterReminderInterval: state.waterReminderInterval,
+        activeTaskId: state.activeTaskId,
       }),
     }
   )

@@ -14,6 +14,7 @@ import { Sparkles, Calendar, Award, Palette, Shirt, Sliders, LogOut, Sun, Moon, 
 import { format, parseISO } from 'date-fns';
 import { LumoraLogo } from '../../src/components/LumoraLogo';
 import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming } from 'react-native-reanimated';
+import { hasFullEntitlements } from '../../src/config/demoConfig';
 
 
 export default function ProfileScreen() {
@@ -234,7 +235,7 @@ export default function ProfileScreen() {
           <View style={styles.dressingGrid}>
             {activeDressingTab === 'avatar' ? (
               avatarMilestones.map((item) => {
-                const isUnlocked = user.level >= item.level;
+                const isUnlocked = hasFullEntitlements(user) || (user.unlockedAvatars && user.unlockedAvatars.includes(item.id)) || user.level >= item.level;
                 const isEquipped = user.equippedAvatar === item.id;
 
                 return (
@@ -277,7 +278,7 @@ export default function ProfileScreen() {
               })
             ) : (
               accessoryMilestones.map((item) => {
-                const isUnlocked = user.level >= item.level;
+                const isUnlocked = hasFullEntitlements(user) || (user.unlockedAccessories && user.unlockedAccessories.includes(item.id)) || user.level >= item.level;
                 const isEquipped = (user.equippedAccessories || []).includes(item.id);
 
                 return (
@@ -370,7 +371,7 @@ export default function ProfileScreen() {
             {Object.entries(themePalettes).map(([paletteId, meta]) => {
               const name = paletteId as ThemeName;
               const isSelected = themeName === name;
-              const isUnlocked = unlockedThemes.includes(name);
+              const isUnlocked = hasFullEntitlements(user) || unlockedThemes.includes(name);
 
               const previewColors = meta.light;
 

@@ -16,6 +16,8 @@ export interface UserProfile {
   equippedAccessories: AccessoryType[];
   unlockedAvatars: AvatarType[];
   unlockedAccessories: AccessoryType[];
+  isAdmin?: boolean;
+  customSubjects?: string[];
 }
 
 export interface Task {
@@ -42,6 +44,7 @@ export interface FocusSession {
   completed: boolean;
   notes?: string;
   quizScore?: string; // e.g., "4/5" or null if no quiz
+  difficulty?: 'easy' | 'medium' | 'hard';
 }
 
 export interface QuizQuestion {

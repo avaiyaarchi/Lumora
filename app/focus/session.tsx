@@ -77,7 +77,7 @@ export default function FocusSessionScreen() {
   };
 
   // SVGs Illustrations
-  const SleepyCloudSVG = () => (
+  const renderSleepyCloudSVG = () => (
     <View style={styles.svgWrapper}>
       <Svg width={130} height={130} viewBox="0 0 120 120">
         <Defs>
@@ -124,7 +124,7 @@ export default function FocusSessionScreen() {
     </View>
   );
 
-  const WaterDropletSVG = () => (
+  const renderWaterDropletSVG = () => (
     <View style={styles.svgWrapper}>
       <Svg width={130} height={130} viewBox="0 0 120 120">
         <Defs>
@@ -212,7 +212,7 @@ export default function FocusSessionScreen() {
       <Modal visible={quitModalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <SleepyCloudSVG />
+            {renderSleepyCloudSVG()}
             <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>End your focus session?</Text>
             <Text style={[styles.modalDescription, { color: colors.textSecondary }]}>
               You haven't completed this sprint yet. Ending it now means you won't earn XP, your study time won't be counted, and your streak progress for this sprint won't increase.
@@ -240,7 +240,7 @@ export default function FocusSessionScreen() {
       <Modal visible={showWaterReminder} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <WaterDropletSVG />
+            {renderWaterDropletSVG()}
             <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>💧 Stay Hydrated</Text>
             <Text style={[styles.modalDescription, { color: colors.textSecondary }]}>
               Your brain works better when you're hydrated.

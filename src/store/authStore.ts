@@ -7,11 +7,14 @@ import {
   registerUser,
   logoutUser,
   resetPassword as apiResetPassword,
+  ADMIN_USER_PROFILE,
 } from '../services/firebase/auth';
 import { updateUserProfile } from '../services/firebase/firestore';
-import { processXPAdd } from '../constants/xp';
+import { processXPAdd, ALL_THEMES, ALL_AVATARS, ALL_ACCESSORIES } from '../constants/xp';
 import { useThemeStore } from './themeStore';
+import { useSubjectStore } from './subjectStore';
 import { AvatarType, AccessoryType } from '../components/avatars/AvatarLayer';
+import { isDemoMode, hasFullEntitlements, DEMO_CONFIG } from '../config/demoConfig';
 
 
 interface AuthState {
@@ -23,6 +26,7 @@ interface AuthState {
   
   initialize: () => () => void;
   login: (email: string, password: string) => Promise<void>;
+  loginGuest: () => Promise<void>;
   register: (name: string, email: string, password: string, semester: string) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
@@ -35,13 +39,62 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-  user: null,
-  loading: true,
+  user: isDemoMode() ? ADMIN_USER_PROFILE : null,
+  loading: !isDemoMode(),
   error: null,
-  initialized: false,
-  onboardingCompleted: false,
+  initialized: isDemoMode(),
+  onboardingCompleted: isDemoMode(),
 
   initialize: () => {
+    if (isDemoMode()) {
+      set({ loading: true });
+
+      // Immediate load for demo presentation mode with saved preference persistence
+      AsyncStorage.getItem(`lumora_profile_${DEMO_CONFIG.demoUserId}`)
+        .then((savedRaw) => {
+          let demoProfile = { ...ADMIN_USER_PROFILE };
+          if (savedRaw) {
+            try {
+              const parsed = JSON.parse(savedRaw);
+              demoProfile = { ...demoProfile, ...parsed, isAdmin: true };
+            } catch (e) {
+              console.warn('Failed parsing saved demo profile, using default:', e);
+            }
+          } else {
+            AsyncStorage.setItem(
+              `lumora_profile_${DEMO_CONFIG.demoUserId}`,
+              JSON.stringify(demoProfile)
+            ).catch(() => {});
+          }
+
+          set({
+            user: demoProfile,
+            loading: false,
+            initialized: true,
+            onboardingCompleted: true,
+            error: null,
+          });
+
+          // Unlock all themes for demo presentation
+          useThemeStore.getState().unlockAllThemes();
+          if (demoProfile.customSubjects && demoProfile.customSubjects.length > 0) {
+            useSubjectStore.getState().syncWithTasksAndSessions(demoProfile.customSubjects);
+          }
+        })
+        .catch(() => {
+          set({
+            user: ADMIN_USER_PROFILE,
+            loading: false,
+            initialized: true,
+            onboardingCompleted: true,
+            error: null,
+          });
+          useThemeStore.getState().unlockAllThemes();
+        });
+
+      return () => {};
+    }
+
     set({ loading: true });
 
     // Check onboarding completion
@@ -56,11 +109,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const unsubscribe = subscribeToAuthChanges((profile) => {
       set({ user: profile, loading: false, initialized: true, error: null });
       
-      // If user profile is loaded, sync theme store with unlocked themes
+      // If user profile is loaded, sync theme store with unlocked themes and subject store
       if (profile) {
-        profile.unlockedThemes.forEach((theme) => {
-          useThemeStore.getState().unlockTheme(theme);
-        });
+        if (profile.isAdmin) {
+          useThemeStore.getState().unlockAllThemes();
+        } else {
+          profile.unlockedThemes.forEach((theme) => {
+            useThemeStore.getState().unlockTheme(theme);
+          });
+        }
+        if (profile.customSubjects && profile.customSubjects.length > 0) {
+          useSubjectStore.getState().syncWithTasksAndSessions(profile.customSubjects);
+        }
       }
     });
     return unsubscribe;
@@ -85,6 +145,41 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
       set({ loading: false, error: friendlyMessage });
       throw err;
+    }
+  },
+
+  loginGuest: async () => {
+    set({ loading: true, error: null });
+    if (isDemoMode()) {
+      set({ user: ADMIN_USER_PROFILE, loading: false });
+      return;
+    }
+    try {
+      let profile: UserProfile;
+      try {
+        profile = await loginUser('guest@lumora.app', 'guestpass123');
+      } catch {
+        profile = await registerUser('Guest Scholar', 'guest@lumora.app', 'guestpass123', 'Semester 1');
+      }
+      set({ user: profile, loading: false });
+    } catch (err: any) {
+      const fallbackGuest: UserProfile = {
+        uid: 'guest-user-uid',
+        name: 'Guest Scholar',
+        email: 'guest@lumora.app',
+        semester: 'Semester 1',
+        level: 1,
+        xp: 0,
+        streak: 1,
+        lastStudyDate: new Date().toISOString().split('T')[0],
+        joinedDate: new Date().toLocaleDateString(),
+        unlockedThemes: ['lavender', 'pink', 'cream', 'sky', 'sage'],
+        equippedAvatar: 'cat',
+        equippedAccessories: [],
+        unlockedAvatars: ['cat', 'rabbit'],
+        unlockedAccessories: ['glasses'],
+      };
+      set({ user: fallbackGuest, loading: false });
     }
   },
 
@@ -143,22 +238,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       user.unlockedAccessories
     );
 
+    const isFull = hasFullEntitlements(user);
     const updates: Partial<UserProfile> = {
       xp: result.newXP,
       level: result.newLevel,
-      unlockedThemes: result.unlockedThemes,
-      unlockedAvatars: result.unlockedAvatars,
-      unlockedAccessories: result.unlockedAccessories,
+      unlockedThemes: isFull ? ALL_THEMES : result.unlockedThemes,
+      unlockedAvatars: isFull ? ALL_AVATARS : result.unlockedAvatars,
+      unlockedAccessories: isFull ? ALL_ACCESSORIES : result.unlockedAccessories,
     };
 
+    const updatedUser = { ...user, ...updates };
+    set({ user: updatedUser });
+    await AsyncStorage.setItem(`lumora_profile_${user.uid}`, JSON.stringify(updatedUser)).catch(() => {});
     await updateUserProfile(user.uid, updates);
 
     // Sync newly unlocked themes to the theme store
-    result.unlockedThemes.forEach((theme) => {
-      useThemeStore.getState().unlockTheme(theme);
-    });
-
-    set({ user: { ...user, ...updates } });
+    if (isFull) {
+      useThemeStore.getState().unlockAllThemes();
+    } else {
+      result.unlockedThemes.forEach((theme) => {
+        useThemeStore.getState().unlockTheme(theme);
+      });
+    }
 
     return { leveledUp: result.leveledUp, newLevel: result.newLevel };
   },
@@ -167,9 +268,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { user } = get();
     if (!user) return;
 
-    if (user.unlockedAvatars.includes(avatar)) {
+    if (hasFullEntitlements(user) || user.unlockedAvatars.includes(avatar)) {
+      const updatedUser = { ...user, equippedAvatar: avatar };
+      set({ user: updatedUser });
+      await AsyncStorage.setItem(`lumora_profile_${user.uid}`, JSON.stringify(updatedUser)).catch(() => {});
       await updateUserProfile(user.uid, { equippedAvatar: avatar });
-      set({ user: { ...user, equippedAvatar: avatar } });
     }
   },
 
@@ -177,10 +280,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { user } = get();
     if (!user) return;
 
-    // Filter to ensure only unlocked accessories are equipped
-    const valid = accessories.filter((acc) => user.unlockedAccessories.includes(acc));
+    // Filter to ensure only unlocked accessories are equipped (allow all for admin / demo)
+    const valid = hasFullEntitlements(user)
+      ? accessories
+      : accessories.filter((acc) => user.unlockedAccessories.includes(acc));
+    const updatedUser = { ...user, equippedAccessories: valid };
+    set({ user: updatedUser });
+    await AsyncStorage.setItem(`lumora_profile_${user.uid}`, JSON.stringify(updatedUser)).catch(() => {});
     await updateUserProfile(user.uid, { equippedAccessories: valid });
-    set({ user: { ...user, equippedAccessories: valid } });
   },
 
   updateStreak: async () => {

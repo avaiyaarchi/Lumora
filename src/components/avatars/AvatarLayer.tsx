@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Animated, Easing, StyleSheet } from 'react-native';
 import Svg, { Circle, Path, G, Rect, Ellipse } from 'react-native-svg';
 import { useThemeStore } from '../../store/themeStore';
@@ -20,7 +20,7 @@ export const AvatarLayer: React.FC<AvatarLayerProps> = ({
   animated = true,
 }) => {
   const colors = useThemeStore((state) => state.getColors());
-  const bobAnim = useRef(new Animated.Value(0)).current;
+  const [bobAnim] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     if (animated) {

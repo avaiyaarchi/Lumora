@@ -3,6 +3,8 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Appearance } from 'react-native';
 import { ThemeName, ThemeMode, ThemeColors, themePalettes, starterThemes } from '../theme/colors';
+import { ALL_THEMES } from '../constants/xp';
+import { isDemoMode } from '../config/demoConfig';
 
 interface ThemeState {
   themeName: ThemeName;
@@ -11,6 +13,7 @@ interface ThemeState {
   setThemeName: (name: ThemeName) => void;
   setThemeMode: (mode: ThemeMode) => void;
   unlockTheme: (name: ThemeName) => void;
+  unlockAllThemes: () => void;
   getColors: () => ThemeColors;
 }
 
@@ -19,10 +22,12 @@ export const useThemeStore = create<ThemeState>()(
     (set, get) => ({
       themeName: 'lavender',
       themeMode: 'system',
-      unlockedThemes: [...starterThemes],
+      unlockedThemes: isDemoMode() ? [...ALL_THEMES] : [...starterThemes],
 
       setThemeName: (name: ThemeName) => {
-        if (get().unlockedThemes.includes(name)) {
+        const { unlockedThemes } = get();
+        // Allow switching to any theme if it's unlocked, demo mode is active, or all themes are unlocked
+        if (isDemoMode() || unlockedThemes.includes(name) || ALL_THEMES.includes(name)) {
           set({ themeName: name });
         }
       },
@@ -34,6 +39,10 @@ export const useThemeStore = create<ThemeState>()(
         if (!unlockedThemes.includes(name)) {
           set({ unlockedThemes: [...unlockedThemes, name] });
         }
+      },
+
+      unlockAllThemes: () => {
+        set({ unlockedThemes: [...ALL_THEMES] });
       },
 
       getColors: () => {

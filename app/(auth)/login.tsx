@@ -1,15 +1,15 @@
-import React, { useState } from 'react';
-import { StyleSheet, Text, View, Pressable, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useForm, Controller } from 'react-hook-form';
+import { Check, Lock, Mail } from 'lucide-react-native';
+import { useState } from 'react';
+import { Controller, useForm } from 'react-hook-form';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { z } from 'zod';
-import { useThemeStore } from '../../src/store/themeStore';
-import { useAuthStore } from '../../src/store/authStore';
+import { Button } from '../../src/components/Button';
 import { Card } from '../../src/components/Card';
 import { Input } from '../../src/components/Input';
-import { Button } from '../../src/components/Button';
-import { Sparkles, Mail, Lock, Check } from 'lucide-react-native';
 import { LumoraLogo } from '../../src/components/LumoraLogo';
+import { useAuthStore } from '../../src/store/authStore';
+import { useThemeStore } from '../../src/store/themeStore';
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -20,7 +20,7 @@ type LoginFormData = z.infer<typeof loginSchema>;
 
 export default function LoginScreen() {
   const colors = useThemeStore((state) => state.getColors());
-  const { login, error: authError } = useAuthStore();
+  const { login, loginGuest, error: authError } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const router = useRouter();
@@ -57,6 +57,18 @@ export default function LoginScreen() {
       }
     }, 1200);
   };
+
+  const handleGuestSignIn = async () => {
+    setLoading(true);
+    try {
+      await loginGuest();
+    } catch (err) {
+      console.log('Guest login error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   return (
     <KeyboardAvoidingView
@@ -181,6 +193,14 @@ export default function LoginScreen() {
             disabled={loading}
             style={styles.googleButton}
           />
+
+          <Button
+            title="Skip Login / Continue as Guest"
+            variant="ghost"
+            onPress={handleGuestSignIn}
+            disabled={loading}
+            style={styles.guestButton}
+          />
         </Card>
 
         {/* Footer Link */}
@@ -296,6 +316,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   googleButton: {
+    width: '100%',
+    marginBottom: 12,
+  },
+  guestButton: {
     width: '100%',
   },
   footer: {
